@@ -1,121 +1,201 @@
 """
-body.py - The grounding wire
+body.py - The Environment Substrate
 
-Polls mind in ticks, checks wake conditions, executes ready entities.
-This is the main loop that keeps O alive.
+Body is the physics of O - the autonomous environment where entities exist.
+
+It provides:
+- Spatial substrate (spaces ↔ entities, the directed cyclical structure)
+- Temporal substrate (tick clock, wake conditions)
+- Autonomous operation (Body ticks itself - a heart beats on its own)
+
+From theta.py: Entity = State(Is Spaces)
+Body manages that "Is" - the WHERE-ing of existence.
+
+The directed graph:
+  Space → Entity (containment: space > entity)
+  Entity → Space (membership: entity ∈ space)
+
+Body exposes its data structures directly. Interactors can read/write them.
+Body runs autonomously. External code just launches it.
 """
 
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Set
+from dataclasses import dataclass, field
 
 from mind import Mind
 from state.state import SystemState
-from grammar.parser import parse, Condition, Text
+from grammar.parser import Condition
+
+
+@dataclass
+class Space:
+    """
+    A space in the environment.
+
+    Spaces contain entities. The directed edge: Space → Entity
+
+    Interactors can mutate directly:
+        body.spaces["#channel"].name = "general"
+        body.spaces["#channel"].members.add("@alice")
+    """
+    name: str = ""  # Display name (mutable, set by \name interactor)
+    members: Set[str] = field(default_factory=set)  # Entity IDs in this space
+
+
+@dataclass
+class WakeRecord:
+    """
+    Record of entity sleeping with wake condition.
+
+    Entities suspend with self-prompt to remember why they're waking.
+
+    Interactors can add to sleep queue:
+        body.sleep_queue["@alice"] = WakeRecord(
+            entity="@alice",
+            condition=condition_node,
+            self_prompt="Check what Bob said"
+        )
+    """
+    entity: str  # Who is sleeping
+    condition: Condition  # When to wake
+    self_prompt: str = None  # What to remember on wake
+    resume_command: str = None  # What to execute on wake (optional)
 
 
 class Body:
     """
-    The grounding wire / main loop.
+    The autonomous environment substrate.
 
-    Polls wake conditions, executes ready entities, advances time.
+    Body is the physics of O - it runs itself like a heart beating on its own.
+
+    Provides:
+    1. Spatial substrate - The directed cyclical structure (spaces ↔ entities)
+    2. Temporal substrate - Clock ticks and wake coordination
+    3. Autonomous operation - Ticks itself, executes ready entities
+
+    Data structures are exposed directly. Interactors can read/write them:
+        body.spaces["#channel"].members.add("@alice")
+        body.entity_spaces["@alice"].add("#channel")
+        body.sleep_queue["@bob"] = WakeRecord(...)
+
+    Body is the grounding wire that keeps entities alive.
     """
 
     def __init__(self, mind: Mind, state: SystemState, tick_interval: float = 1.0):
         """
-        Create body.
+        Initialize environment.
 
         Args:
-            mind: The execution engine
-            state: State observer
-            tick_interval: Seconds between ticks
+            mind: Execution engine (command processor)
+            state: Execution log (memory)
+            tick_interval: Seconds between clock ticks
         """
         self.mind = mind
         self.state = state
         self.tick_interval = tick_interval
-        self.wake_registry = {}  # {entity: (condition_str, queued_command)}
 
-    def register_wake(self, entity: str, condition_str: str, queued_command: str = None):
-        """
-        Register entity to wake when condition satisfied.
+        # ===== Spatial substrate (the directed cyclical structure) =====
+        # Exposed for direct access by interactors
 
-        Args:
-            entity: Entity name
-            condition_str: Condition expression (for now, just store as string)
-            queued_command: Command to execute on wake (None = just wake)
-        """
-        self.wake_registry[entity] = (condition_str, queued_command)
+        # Space → Entity (containment)
+        self.spaces: Dict[str, Space] = {}
+        # Example: {#channel: Space(name="general", members={@alice, @bob})}
 
-    def check_wake_conditions(self) -> List[Tuple[str, str]]:
+        # Entity → Space (membership)
+        self.entity_spaces: Dict[str, Set[str]] = {}
+        # Example: {@alice: {#channel, #dev}}
+
+        # ===== Temporal substrate =====
+        # Exposed for direct access by interactors
+
+        self.sleep_queue: Dict[str, WakeRecord] = {}
+        # Example: {@bob: WakeRecord(condition=..., self_prompt="...")}
+
+    # ===== Temporal Coordination =====
+
+    def _check_wake_conditions(self) -> List[WakeRecord]:
         """
-        Check all wake conditions, return ready entities.
+        Check sleep queue for entities whose conditions are satisfied.
 
         Returns:
-            List of (entity, command) tuples ready to execute
+            List of wake records for entities ready to resume
         """
         ready = []
 
-        for entity, (condition_str, queued_command) in list(self.wake_registry.items()):
-            # For now: simple condition checking
-            # TODO: Proper condition evaluation from Condition nodes
-
-            if self._evaluate_condition(condition_str):
-                # Entity is ready
-                if queued_command:
-                    ready.append((entity, queued_command))
-
-                # Remove from registry (one-shot wake)
-                del self.wake_registry[entity]
+        for entity, record in list(self.sleep_queue.items()):
+            if self._evaluate_condition(record.condition):
+                ready.append(record)
+                # Remove from sleep queue (one-shot wake)
+                del self.sleep_queue[entity]
 
         return ready
 
-    def _evaluate_condition(self, condition_str: str) -> bool:
-        """
-        Evaluate a condition string against current state.
+    def _evaluate_condition(self, condition: Condition) -> bool:
+        r"""
+        Evaluate wake condition against environment state.
 
-        For now: stub implementation.
-        Real implementation would parse Condition node and evaluate.
+        Conditions can contain:
+        - Scheduler queries: ?($(\messages #general---) > 5)
+        - Response patterns: ?(response(@bob))
+        - Time conditions: ?(sleep(100))
+        - Boolean logic: ?(A && B)
 
         Args:
-            condition_str: String representation of condition
+            condition: Condition node from grammar
 
         Returns:
             True if condition satisfied
         """
-        # Stub: always return False for now
-        # Real implementation would:
-        # 1. Parse condition to Condition node
-        # 2. Check for response(@entity) in recent logs
-        # 3. Check for sleep(N) elapsed time
-        # 4. Evaluate boolean logic
+        # TODO: Implement condition evaluation
+        # For now: stub always returns False
+        #
+        # Real implementation:
+        # 1. Check if condition contains SchedulerQuery nodes
+        # 2. If yes: evaluate queries via self.observe()
+        # 3. Check for response(@entity) patterns → scan logs
+        # 4. Check for sleep(N) → compare ticks elapsed
+        # 5. Evaluate boolean operators
         return False
 
     def tick(self):
         """
-        Execute one tick:
-        1. Check wake conditions
-        2. Execute ready entities
-        3. Save logs
-        4. Advance time
+        One heartbeat of the environment.
+
+        1. Check wake conditions for sleeping entities
+        2. Execute entities whose conditions are satisfied
+        3. Persist execution log to disk
+        4. Advance clock
+
+        This runs autonomously in the main loop.
         """
-        # Check for ready entities
-        ready = self.check_wake_conditions()
+        # Check who should wake
+        ready_entities = self._check_wake_conditions()
 
-        # Execute each ready entity
-        for entity, command in ready:
-            output = self.mind.execute(command)
-            self.state.add_execution(entity, command, output)
+        # Execute ready entities
+        for record in ready_entities:
+            # In full implementation: stdin buffer + self_prompt → entity
+            # For now: just execute resume command if present
+            if record.resume_command:
+                output = self.mind.execute(record.resume_command, executor=record.entity)
+                self.state.add_execution(record.entity, record.resume_command, output)
 
-        # Save this tick's log
-        if self.state.executions:  # Only save if something happened
+        # Persist execution log
+        if self.state.executions:
             self.state.save_tick_log(Path("state/logs"))
 
-        # Advance to next tick
+        # Advance clock
         self.state.advance_tick()
 
-    def run(self, max_ticks: int = None):
+    # ===== Autonomous Operation =====
+
+    def run(self, max_ticks: Optional[int] = None):
         """
-        Main loop: tick forever (or until max_ticks).
+        Run the environment autonomously.
+
+        Body ticks itself like a heart beating on its own.
+        External code just launches this and lets it run.
 
         Args:
             max_ticks: Stop after N ticks (None = run forever)
@@ -131,43 +211,51 @@ class Body:
 
             time.sleep(self.tick_interval)
 
+    # ===== Direct Intervention =====
+
     def execute_now(self, entity: str, command: str) -> str:
         """
-        Execute command immediately (bypass wake system).
+        Execute command immediately (bypass temporal layer).
 
-        Useful for:
-        - Manual command injection
-        - Human interface
-        - Bootstrap initialization
+        Skips sleep queue - executes command synchronously.
+        This is for direct intervention in the environment.
+
+        Use cases:
+        - Human-initiated commands (web/CLI interface)
+        - System bootstrap
+        - Testing/debugging
 
         Args:
-            entity: Executor
-            command: Command string
+            entity: Who is executing (entity name)
+            command: Command string to execute
 
         Returns:
-            Output from execution
+            Execution output
         """
-        output = self.mind.execute(command)
+        output = self.mind.execute(command, executor=entity)
         self.state.add_execution(entity, command, output)
         return output
 
 
-# Simple test/demo
+# Test/demo
 if __name__ == '__main__':
-    # Create minimal system
-    mind = Mind(interactors={})  # No interactors yet
+    # Bootstrap minimal O environment
+    mind = Mind(interactors={})
     state = SystemState(tick=0, executions=[])
     body = Body(mind, state, tick_interval=1.0)
 
-    # Try to execute a command (will fail - no interactors)
-    print("Executing test command...")
+    # Test immediate execution (bypass temporal layer)
+    print("Testing environment...")
     output = body.execute_now("@test", r"\say #general Hello ---")
     print(f"Output: {output}")
 
-    # Show state
-    print(f"\nState after execution:")
+    # Show environment state
+    print(f"\nEnvironment state:")
     print(f"Tick: {state.tick}")
     print(f"Executions: {len(state.executions)}")
+    print(f"Sleep queue: {len(body.sleep_queue)} entities")
     if state.executions:
-        print(f"  {state.executions[0].executor}: {state.executions[0].command}")
+        print(f"\nLast execution:")
+        print(f"  Entity: {state.executions[0].executor}")
+        print(f"  Command: {state.executions[0].command}")
         print(f"  Output: {state.executions[0].output}")

@@ -19,12 +19,13 @@ class EchoInteractor(Interactor):
     - Base camp / sanity check
     """
 
-    def execute(self, cmd: Command) -> str:
+    def execute(self, cmd: Command, executor: str = None) -> str:
         """
         Echo back the text content of the command.
 
         Args:
             cmd: Parsed command tree
+            executor: Who is executing (unused by echo)
 
         Returns:
             "Echo: <text content>"

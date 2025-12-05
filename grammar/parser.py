@@ -228,6 +228,13 @@ class Parser:
             elif char == '#':
                 # parse_space returns list - extend to unpack multiple spaces
                 nodes.extend(self.parse_space())
+            elif char == '\\':
+                # Backslash inside command content is reserved for nested commands
+                # For now, it's not allowed in text (would need escape sequences)
+                raise self.error(
+                    "Backslash (\\) not allowed in text content. "
+                    "Use it only to start commands: \\command ---"
+                )
             elif char == '?':
                 # Only parse condition if next char is (
                 if self.pos + 1 < self.length and self.text[self.pos + 1] == '(':
