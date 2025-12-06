@@ -48,10 +48,10 @@ class ParserError(ValueError):
 @dataclass
 class Text:
     """Base text class: .."""
-    content: str
+    text: str
 
     def __repr__(self):
-        return f'Text("{self.content}")'
+        return f'Text("{self.text}")'
 
 
 @dataclass

@@ -30,7 +30,7 @@ class TestGrammarClasses:
     def test_text_creation(self):
         """Test Text node creation and repr"""
         text = Text("hello world")
-        assert text.content == "hello world"
+        assert text.text == "hello world"
         assert repr(text) == 'Text("hello world")'
 
     def test_entity_creation(self):
@@ -239,16 +239,16 @@ class TestSchedulerQueryParsing:
         result = parse(r"\check $(\N---) ---")
         queries = [n for n in result.content if isinstance(n, SchedulerQuery)]
         assert len(queries) == 1
-        assert queries[0].command[0].content == "N"
+        assert queries[0].command[0].text == "N"
 
     def test_multiple_scheduler_queries(self):
         """Test multiple commands in one $(...)"""
         result = parse(r"\monitor $(\test---\N---\O---) ---")
         queries = [n for n in result.content if isinstance(n, SchedulerQuery)]
         assert len(queries) == 3
-        assert queries[0].command[0].content == "test"
-        assert queries[1].command[0].content == "\\N"
-        assert queries[2].command[0].content == "\\O"
+        assert queries[0].command[0].text == "test"
+        assert queries[1].command[0].text == "\\N"
+        assert queries[2].command[0].text == "\\O"
 
     def test_scheduler_query_with_entity(self):
         """Test scheduler query with entity reference"""
@@ -256,7 +256,7 @@ class TestSchedulerQueryParsing:
         queries = [n for n in result.content if isinstance(n, SchedulerQuery)]
         assert len(queries) == 1
         # Content should include @alice in raw text
-        assert "@alice" in queries[0].command[0].content
+        assert "@alice" in queries[0].command[0].text
 
     def test_two_separate_scheduler_queries(self):
         """Test multiple $(...)  blocks separately"""
@@ -333,7 +333,7 @@ class TestCommandStructure:
         result = parse(r"\say    multiple    spaces ---")
         texts = [n for n in result.content if isinstance(n, Text)]
         # Should preserve multiple spaces
-        combined_text = ''.join(t.content for t in texts)
+        combined_text = ''.join(t.text for t in texts)
         assert "    " in combined_text
 
 

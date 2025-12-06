@@ -35,7 +35,7 @@ class EchoInteractor(Interactor):
         first = True
         for node in cmd.content:
             if isinstance(node, Text):
-                content = node.content.strip()
+                content = node.text.strip()
                 if first:
                     # First text node contains "echo ..." - strip "echo"
                     content = content.split(maxsplit=1)

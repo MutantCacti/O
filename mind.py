@@ -64,7 +64,7 @@ class Mind:
         """
         for node in cmd.content:
             if isinstance(node, Text):
-                content = node.content.strip()
+                content = node.text.strip()
                 if content:
                     # Get first word
                     return content.split()[0]
