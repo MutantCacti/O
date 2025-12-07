@@ -17,6 +17,9 @@ The directed graph:
 
 Body exposes its data structures directly. Interactors can read/write them.
 Body runs autonomously. External code just launches it.
+
+NOTE: Current implementation is synchronous. Future versions will use
+      Litestar for async operation to prevent tick drift.
 """
 
 import time

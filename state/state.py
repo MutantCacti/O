@@ -77,6 +77,7 @@ class SystemState:
         log_path = log_dir / f"log_{self.tick}.json"
 
         data = {
+            "version": "0.1.0",  # For future state format migrations
             "tick": self.tick,
             "executions": [e.to_dict() for e in self.executions]
         }
@@ -87,6 +88,7 @@ class SystemState:
     def save_state(self, state_path: Path):
         """Save current state to state.json"""
         data = {
+            "version": "0.1.0",  # For future state format migrations
             "tick": self.tick,
             "executions": [e.to_dict() for e in self.executions]
         }
