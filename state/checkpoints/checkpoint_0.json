@@ -1,0 +1,20 @@
+{
+  "tick": 0,
+  "executions": [
+    {
+      "executor": "@root",
+      "command": "\\echo Bootstrap test ---",
+      "output": "Echo: Bootstrap test"
+    },
+    {
+      "executor": "@root",
+      "command": "\\echo Second command ---",
+      "output": "Echo: Second command"
+    }
+  ],
+  "body": {
+    "spaces": {},
+    "entity_spaces": {},
+    "sleep_queue": {}
+  }
+}

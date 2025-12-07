@@ -83,17 +83,19 @@ class Body:
     Body is the grounding wire that keeps entities alive.
     """
 
-    def __init__(self, mind: Mind, state: SystemState, tick_interval: float = 1.0):
+    def __init__(self, mind: Mind, state: SystemState, transformers: List = None, tick_interval: float = 1.0):
         """
         Initialize environment.
 
         Args:
             mind: Execution engine (command processor)
             state: Execution log (memory)
+            transformers: List of I/O devices (humans, LLMs) to poll for input
             tick_interval: Seconds between clock ticks
         """
         self.mind = mind
         self.state = state
+        self.transformers = transformers or []
         self.tick_interval = tick_interval
 
         # ===== Spatial substrate (the directed cyclical structure) =====
@@ -163,13 +165,22 @@ class Body:
         """
         One heartbeat of the environment.
 
-        1. Check wake conditions for sleeping entities
-        2. Execute entities whose conditions are satisfied
-        3. Persist execution log to disk
-        4. Advance clock
+        1. Poll transformers (I/O devices) for input
+        2. Check wake conditions for sleeping entities
+        3. Execute entities whose conditions are satisfied
+        4. Persist execution log to disk
+        5. Advance clock
 
         This runs autonomously in the main loop.
         """
+        # Poll transformers (humans, LLMs) for input
+        for transformer in self.transformers:
+            result = transformer.poll(self)
+            if result:
+                entity, command = result
+                output = self.mind.execute(command, executor=entity)
+                self.state.add_execution(entity, command, output)
+
         # Check who should wake
         ready_entities = self._check_wake_conditions()
 
