@@ -6,3 +6,9 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# O runtime artifacts
+state/logs/
+state/checkpoints/
+memory/
+*.jsonl
