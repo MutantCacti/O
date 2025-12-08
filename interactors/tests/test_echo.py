@@ -44,21 +44,23 @@ class TestEchoInteractor:
 class TestMindBodyIntegration:
     """Test the full chain: mind → body → interactor → state"""
 
-    def test_mind_executes_echo(self):
+    @pytest.mark.asyncio
+    async def test_mind_executes_echo(self):
         """Mind can execute echo command"""
         mind = Mind(interactors={"echo": EchoInteractor()})
 
-        output = mind.execute(r"\echo Test message ---")
+        output = await mind.execute(r"\echo Test message ---")
 
         assert output == "Echo: Test message"
 
-    def test_body_executes_and_logs(self):
+    @pytest.mark.asyncio
+    async def test_body_executes_and_logs(self):
         """Body executes command and logs to state"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        output = body.execute_now("@test", r"\echo Hello ---")
+        output = await body.execute_now("@test", r"\echo Hello ---")
 
         assert output == "Echo: Hello"
         assert len(state.executions) == 1
@@ -66,7 +68,8 @@ class TestMindBodyIntegration:
         assert state.executions[0].command == r"\echo Hello ---"
         assert state.executions[0].output == "Echo: Hello"
 
-    def test_body_tick_saves_log(self):
+    @pytest.mark.asyncio
+    async def test_body_tick_saves_log(self):
         """Body saves tick logs correctly"""
         tmpdir = Path(tempfile.mkdtemp())
 
@@ -76,10 +79,10 @@ class TestMindBodyIntegration:
             body = Body(mind, state)
 
             # Execute command
-            body.execute_now("@alice", r"\echo Tick test ---")
+            await body.execute_now("@alice", r"\echo Tick test ---")
 
             # Tick should save log
-            body.tick()
+            await body.tick()
 
             # Check log file exists
             log_file = tmpdir / "logs" / "log_0.json"
@@ -93,11 +96,12 @@ class TestMindBodyIntegration:
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def test_unknown_command_error(self):
+    @pytest.mark.asyncio
+    async def test_unknown_command_error(self):
         """Mind returns error for unknown command"""
         mind = Mind(interactors={"echo": EchoInteractor()})
 
-        output = mind.execute(r"\unknown command ---")
+        output = await mind.execute(r"\unknown command ---")
 
         assert "ERROR" in output
         assert "unknown" in output.lower()
@@ -106,7 +110,8 @@ class TestMindBodyIntegration:
 class TestBootstrapSequence:
     """Test bootstrapping a minimal O system"""
 
-    def test_minimal_system_runs(self):
+    @pytest.mark.asyncio
+    async def test_minimal_system_runs(self):
         """Can create and run minimal system"""
         # Create system
         mind = Mind(interactors={"echo": EchoInteractor()})
@@ -114,25 +119,26 @@ class TestBootstrapSequence:
         body = Body(mind, state, tick_interval=0.1)
 
         # Execute a few commands
-        body.execute_now("@root", r"\echo Bootstrap test ---")
-        body.execute_now("@root", r"\echo Second command ---")
+        await body.execute_now("@root", r"\echo Bootstrap test ---")
+        await body.execute_now("@root", r"\echo Second command ---")
 
         # Verify executions logged
         assert len(state.executions) == 2
 
         # Tick and verify state advances
-        body.tick()
+        await body.tick()
         assert state.tick == 1
 
-    def test_multiple_entities(self):
+    @pytest.mark.asyncio
+    async def test_multiple_entities(self):
         """Multiple entities can execute in same tick"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
         # Different entities execute
-        body.execute_now("@alice", r"\echo Hello from alice ---")
-        body.execute_now("@bob", r"\echo Hello from bob ---")
+        await body.execute_now("@alice", r"\echo Hello from alice ---")
+        await body.execute_now("@bob", r"\echo Hello from bob ---")
 
         assert len(state.executions) == 2
         executors = {e.executor for e in state.executions}

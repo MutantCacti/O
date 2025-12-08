@@ -1,12 +1,8 @@
-"""Tests for transformer (I/O device) polling."""
+"""Test transformer base class and HumanTransformer stub."""
 
 import pytest
 from transformers.base import Transformer
 from transformers.human import HumanTransformer
-from mind import Mind
-from body import Body
-from state.state import SystemState
-from interactors.echo import EchoInteractor
 
 
 def test_transformer_base_is_abstract():
@@ -15,51 +11,60 @@ def test_transformer_base_is_abstract():
         Transformer()
 
 
-def test_human_transformer_polls_empty():
-    """HumanTransformer returns None when no input."""
-    body = Body(Mind({}), SystemState(tick=0, executions=[]))
-    human = HumanTransformer()
+class TestHumanTransformerStub:
+    """Test HumanTransformer reference stub."""
 
-    result = human.poll(body)
-    assert result is None
+    def test_human_transformer_is_transformer(self):
+        """HumanTransformer implements Transformer."""
+        human = HumanTransformer()
+        assert isinstance(human, Transformer)
 
+    @pytest.mark.asyncio
+    async def test_think_returns_none_when_empty(self):
+        """think() returns None when no input submitted."""
+        human = HumanTransformer()
+        result = await human.think("@alice", {"tick": 0})
+        assert result is None
 
-def test_human_transformer_polls_input():
-    """HumanTransformer returns input when available."""
-    body = Body(Mind({}), SystemState(tick=0, executions=[]))
-    human = HumanTransformer()
+    @pytest.mark.asyncio
+    async def test_think_returns_command_for_matching_entity(self):
+        """think() returns submitted command for matching entity."""
+        human = HumanTransformer()
+        human.submit("@alice", r"\echo Hello ---")
 
-    # Submit input
-    human.submit("@alice", r"\echo test ---")
+        result = await human.think("@alice", {"tick": 0})
+        assert result == r"\echo Hello ---"
 
-    # Poll returns it
-    result = human.poll(body)
-    assert result == ("@alice", r"\echo test ---")
+    @pytest.mark.asyncio
+    async def test_think_returns_none_for_wrong_entity(self):
+        """think() returns None if entity doesn't match."""
+        human = HumanTransformer()
+        human.submit("@alice", r"\echo Hello ---")
 
-    # Second poll returns None (consumed)
-    result = human.poll(body)
-    assert result is None
+        result = await human.think("@bob", {"tick": 0})
+        assert result is None
 
+        # Command still pending for @alice
+        result = await human.think("@alice", {"tick": 0})
+        assert result == r"\echo Hello ---"
 
-def test_body_polls_transformer():
-    """Body can poll transformer and execute command."""
-    mind = Mind({"echo": EchoInteractor()})
-    state = SystemState(tick=0, executions=[])
-    body = Body(mind, state)
+    @pytest.mark.asyncio
+    async def test_think_clears_after_match(self):
+        """think() clears pending input after successful match."""
+        human = HumanTransformer()
+        human.submit("@alice", r"\echo Hello ---")
 
-    human = HumanTransformer()
-    human.submit("@alice", r"\echo Hello! ---")
+        # First call returns command
+        result = await human.think("@alice", {"tick": 0})
+        assert result == r"\echo Hello ---"
 
-    # Poll transformer
-    result = human.poll(body)
-    assert result is not None
+        # Second call returns None (cleared)
+        result = await human.think("@alice", {"tick": 0})
+        assert result is None
 
-    entity, command = result
+    def test_submit_stores_entity_and_command(self):
+        """submit() stores entity and command tuple."""
+        human = HumanTransformer()
+        human.submit("@bob", r"\stdout Test ---")
 
-    # Execute command
-    output = body.execute_now(entity, command)
-    assert "Hello!" in output
-
-    # Verify execution logged
-    assert len(state.executions) == 1
-    assert state.executions[0].executor == "@alice"
+        assert human.pending_input == ("@bob", r"\stdout Test ---")

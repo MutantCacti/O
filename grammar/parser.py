@@ -96,11 +96,12 @@ Node = Union[Text, Entity, Space, Condition, SchedulerQuery]
 
 @dataclass
 class Command:
-    r"""Parsed command: \ .. ---"""
-    content: List[Node]
+    r"""Parsed command: \name args ---"""
+    name: str  # Command name (first word after backslash)
+    content: List[Node]  # Arguments (everything after the name)
 
     def __repr__(self):
-        return f'Command({self.content})'
+        return f'Command({self.name}, {self.content})'
 
 
 # === Parser ===
@@ -194,13 +195,27 @@ class Parser:
             )
 
     def parse_command(self) -> Command:
-        r"""Parse a command: \ .. ---"""
+        r"""Parse a command: \name args ---"""
         # Expect leading \
         if self.peek() != '\\':
             raise self.error("Commands must start with backslash (\\)")
         self.consume()  # Skip \
 
-        # Parse content until ---
+        # Extract command name (first word, letters/numbers/underscores only)
+        self.skip_whitespace()
+        name_start = self.pos
+        while self.pos < self.length:
+            char = self.peek()
+            if char.isalnum() or char == '_':
+                self.consume()
+            else:
+                break
+
+        name = self.text[name_start:self.pos]
+        if not name:
+            raise self.error("Command must have a name after backslash (\\name)")
+
+        # Parse arguments until ---
         content = self.parse_until('---')
 
         # Consume ---
@@ -208,7 +223,7 @@ class Parser:
             raise self.error("Commands must end with --- terminator")
         self.consume(3)
 
-        return Command(content)
+        return Command(name=name, content=content)
 
     def parse_until(self, terminator: str) -> List[Node]:
         """Parse content until terminator is found"""

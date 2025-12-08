@@ -18,13 +18,12 @@ The directed graph:
 Body exposes its data structures directly. Interactors can read/write them.
 Body runs autonomously. External code just launches it.
 
-NOTE: Current implementation is synchronous. Future versions will use
-      Litestar for async operation to prevent tick drift.
+Fully async for safe concurrent I/O with transformers.
 """
 
-import time
+import asyncio
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass, field
 
 from mind import Mind
@@ -86,19 +85,19 @@ class Body:
     Body is the grounding wire that keeps entities alive.
     """
 
-    def __init__(self, mind: Mind, state: SystemState, transformers: List = None, tick_interval: float = 1.0):
+    def __init__(self, mind: Mind, state: SystemState, transformer=None, tick_interval: float = 1.0):
         """
         Initialize environment.
 
         Args:
             mind: Execution engine (command processor)
             state: Execution log (memory)
-            transformers: List of I/O devices (humans, LLMs) to poll for input
+            transformer: Inference service for entities (stateless, shared)
             tick_interval: Seconds between clock ticks
         """
         self.mind = mind
         self.state = state
-        self.transformers = transformers or []
+        self.transformer = transformer  # Single transformer service (stateless)
         self.tick_interval = tick_interval
 
         # ===== Spatial substrate (the directed cyclical structure) =====
@@ -164,36 +163,32 @@ class Body:
         # 5. Evaluate boolean operators
         return False
 
-    def tick(self):
+    async def tick(self):
         """
         One heartbeat of the environment.
 
-        1. Poll transformers (I/O devices) for input
-        2. Check wake conditions for sleeping entities
-        3. Execute entities whose conditions are satisfied
-        4. Persist execution log to disk
-        5. Advance clock
+        1. Check wake conditions for sleeping entities
+        2. For each awake entity: build context, call transformer.think(), execute command
+        3. Persist execution log to disk
+        4. Advance clock
 
         This runs autonomously in the main loop.
         """
-        # Poll transformers (humans, LLMs) for input
-        for transformer in self.transformers:
-            result = transformer.poll(self)
-            if result:
-                entity, command = result
-                output = self.mind.execute(command, executor=entity)
-                self.state.add_execution(entity, command, output)
-
         # Check who should wake
         ready_entities = self._check_wake_conditions()
 
-        # Execute ready entities
-        for record in ready_entities:
-            # In full implementation: stdin buffer + self_prompt → entity
-            # For now: just execute resume command if present
-            if record.resume_command:
-                output = self.mind.execute(record.resume_command, executor=record.entity)
-                self.state.add_execution(record.entity, record.resume_command, output)
+        # Execute ready entities via transformer
+        if self.transformer and ready_entities:
+            for record in ready_entities:
+                # Build context for entity
+                context = self._build_context(record.entity, record.self_prompt)
+
+                # Ask transformer to think for this entity
+                command = await self.transformer.think(record.entity, context)
+
+                if command:
+                    output = await self.mind.execute(command, executor=record.entity)
+                    self.state.add_execution(record.entity, command, output)
 
         # Persist execution log
         if self.state.executions:
@@ -202,9 +197,27 @@ class Body:
         # Advance clock
         self.state.advance_tick()
 
+    def _build_context(self, entity: str, wake_reason: str = None) -> Dict[str, Any]:
+        """
+        Build context dict for an entity.
+
+        Args:
+            entity: Entity name
+            wake_reason: Why entity woke up (self_prompt from WakeRecord)
+
+        Returns:
+            Context dict for transformer.think()
+        """
+        return {
+            "tick": self.state.tick,
+            "spaces": list(self.entity_spaces.get(entity, set())),
+            "wake_reason": wake_reason,
+            # TODO: Add messages, stdout history, etc.
+        }
+
     # ===== Autonomous Operation =====
 
-    def run(self, max_ticks: Optional[int] = None):
+    async def run(self, max_ticks: Optional[int] = None):
         """
         Run the environment autonomously.
 
@@ -215,23 +228,28 @@ class Body:
             max_ticks: Stop after N ticks (None = run forever)
         """
         ticks = 0
+        self._running = True
 
-        while True:
-            self.tick()
+        while self._running:
+            await self.tick()
 
             ticks += 1
             if max_ticks and ticks >= max_ticks:
                 break
 
-            time.sleep(self.tick_interval)
+            await asyncio.sleep(self.tick_interval)
+
+    def stop(self):
+        """Signal the run loop to stop."""
+        self._running = False
 
     # ===== Direct Intervention =====
 
-    def execute_now(self, entity: str, command: str) -> str:
+    async def execute_now(self, entity: str, command: str) -> str:
         """
         Execute command immediately (bypass temporal layer).
 
-        Skips sleep queue - executes command synchronously.
+        Skips sleep queue - executes asynchronously.
         This is for direct intervention in the environment.
 
         Use cases:
@@ -246,30 +264,33 @@ class Body:
         Returns:
             Execution output
         """
-        output = self.mind.execute(command, executor=entity)
+        output = await self.mind.execute(command, executor=entity)
         self.state.add_execution(entity, command, output)
         return output
 
 
 # Test/demo
 if __name__ == '__main__':
-    # Bootstrap minimal O environment
-    mind = Mind(interactors={})
-    state = SystemState(tick=0, executions=[])
-    body = Body(mind, state, tick_interval=1.0)
+    async def main():
+        # Bootstrap minimal O environment
+        mind = Mind(interactors={})
+        state = SystemState(tick=0, executions=[])
+        body = Body(mind, state, tick_interval=1.0)
 
-    # Test immediate execution (bypass temporal layer)
-    print("Testing environment...")
-    output = body.execute_now("@test", r"\say #general Hello ---")
-    print(f"Output: {output}")
+        # Test immediate execution (bypass temporal layer)
+        print("Testing environment...")
+        output = await body.execute_now("@test", r"\say #general Hello ---")
+        print(f"Output: {output}")
 
-    # Show environment state
-    print(f"\nEnvironment state:")
-    print(f"Tick: {state.tick}")
-    print(f"Executions: {len(state.executions)}")
-    print(f"Sleep queue: {len(body.sleep_queue)} entities")
-    if state.executions:
-        print(f"\nLast execution:")
-        print(f"  Entity: {state.executions[0].executor}")
-        print(f"  Command: {state.executions[0].command}")
-        print(f"  Output: {state.executions[0].output}")
+        # Show environment state
+        print(f"\nEnvironment state:")
+        print(f"Tick: {state.tick}")
+        print(f"Executions: {len(state.executions)}")
+        print(f"Sleep queue: {len(body.sleep_queue)} entities")
+        if state.executions:
+            print(f"\nLast execution:")
+            print(f"  Entity: {state.executions[0].executor}")
+            print(f"  Command: {state.executions[0].command}")
+            print(f"  Output: {state.executions[0].output}")
+
+    asyncio.run(main())

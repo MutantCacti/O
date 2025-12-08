@@ -59,10 +59,10 @@ class TestGrammarClasses:
 
     def test_command_creation(self):
         """Test Command node creation"""
-        cmd = Command([Text("say"), Entity("alice")])
-        assert len(cmd.content) == 2
-        assert isinstance(cmd.content[0], Text)
-        assert isinstance(cmd.content[1], Entity)
+        cmd = Command(name="say", content=[Entity("alice")])
+        assert cmd.name == "say"
+        assert len(cmd.content) == 1
+        assert isinstance(cmd.content[0], Entity)
 
 
 # ============================================================

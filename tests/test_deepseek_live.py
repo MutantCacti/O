@@ -12,6 +12,7 @@ DO NOT use production API keys for testing.
 Use a separate test account with limited credit.
 """
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -24,7 +25,7 @@ from state.state import SystemState
 from body import Body
 
 
-def main():
+async def main():
     print("=" * 60)
     print("DeepSeek Transformer Live Test")
     print("=" * 60)
@@ -76,7 +77,7 @@ def main():
     print("\nRunning Body.tick() - calling DeepSeek API...")
     print("(This will make a real API call)\n")
 
-    body.tick()
+    await body.tick()
 
     # Check results
     log_file = Path("state/logs/log_0.json")
@@ -130,4 +131,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -100,48 +100,52 @@ class TestSpatialSubstrate:
 class TestExecuteNow:
     """Test immediate execution (bypassing temporal layer)"""
 
-    def test_execute_now_runs_command(self):
+    @pytest.mark.asyncio
+    async def test_execute_now_runs_command(self):
         """execute_now executes command immediately"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        output = body.execute_now("@alice", r"\echo Hello ---")
+        output = await body.execute_now("@alice", r"\echo Hello ---")
 
         assert output == "Echo: Hello"
 
-    def test_execute_now_logs_to_state(self):
+    @pytest.mark.asyncio
+    async def test_execute_now_logs_to_state(self):
         """execute_now adds execution to state"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        body.execute_now("@alice", r"\echo Test ---")
+        await body.execute_now("@alice", r"\echo Test ---")
 
         assert len(state.executions) == 1
         assert state.executions[0].executor == "@alice"
         assert state.executions[0].command == r"\echo Test ---"
         assert state.executions[0].output == "Echo: Test"
 
-    def test_execute_now_passes_executor(self):
+    @pytest.mark.asyncio
+    async def test_execute_now_passes_executor(self):
         """execute_now passes executor to mind"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        body.execute_now("@bob", r"\echo Hi ---")
+        await body.execute_now("@bob", r"\echo Hi ---")
 
         assert state.executions[0].executor == "@bob"
 
-    def test_execute_now_multiple_commands(self):
+    @pytest.mark.asyncio
+    async def test_execute_now_multiple_commands(self):
         """execute_now can be called multiple times"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        body.execute_now("@alice", r"\echo First ---")
-        body.execute_now("@bob", r"\echo Second ---")
-        body.execute_now("@charlie", r"\echo Third ---")
+        await body.execute_now("@alice", r"\echo First ---")
+        await body.execute_now("@bob", r"\echo Second ---")
+        await body.execute_now("@charlie", r"\echo Third ---")
 
         assert len(state.executions) == 3
         assert state.executions[0].executor == "@alice"
@@ -152,30 +156,33 @@ class TestExecuteNow:
 class TestTick:
     """Test the tick mechanism"""
 
-    def test_tick_advances_state(self):
+    @pytest.mark.asyncio
+    async def test_tick_advances_state(self):
         """Tick advances state.tick"""
         mind = Mind(interactors={})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        body.tick()
+        await body.tick()
 
         assert state.tick == 1
 
-    def test_tick_clears_executions(self):
+    @pytest.mark.asyncio
+    async def test_tick_clears_executions(self):
         """Tick clears execution buffer"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        body.execute_now("@alice", r"\echo Test ---")
+        await body.execute_now("@alice", r"\echo Test ---")
         assert len(state.executions) == 1
 
-        body.tick()
+        await body.tick()
 
         assert len(state.executions) == 0
 
-    def test_tick_saves_log(self):
+    @pytest.mark.asyncio
+    async def test_tick_saves_log(self):
         """Tick saves execution log to disk"""
         tmpdir = Path(tempfile.mkdtemp())
 
@@ -184,8 +191,8 @@ class TestTick:
             state = SystemState(tick=0, executions=[])
             body = Body(mind, state)
 
-            body.execute_now("@alice", r"\echo Test ---")
-            body.tick()
+            await body.execute_now("@alice", r"\echo Test ---")
+            await body.tick()
 
             # Check log file exists
             log_file = Path("state/logs/log_0.json")
@@ -197,7 +204,8 @@ class TestTick:
             if Path("state/logs").exists():
                 shutil.rmtree("state/logs", ignore_errors=True)
 
-    def test_tick_preserves_body_state(self):
+    @pytest.mark.asyncio
+    async def test_tick_preserves_body_state(self):
         """Tick doesn't clear body.spaces or entity_spaces"""
         mind = Mind(interactors={"name": NameInteractor(body=None)})
         state = SystemState(tick=0, executions=[])
@@ -207,24 +215,25 @@ class TestTick:
         mind.interactors["name"].body = body
 
         # Create space
-        body.execute_now("@root", r"\name #family @(alice, bob) ---")
+        await body.execute_now("@root", r"\name #family @(alice, bob) ---")
         assert "#family" in body.spaces
 
         # Tick should not clear body state
-        body.tick()
+        await body.tick()
 
         assert "#family" in body.spaces
         assert body.spaces["#family"].members == {"@alice", "@bob"}
 
-    def test_multiple_ticks(self):
+    @pytest.mark.asyncio
+    async def test_multiple_ticks(self):
         """Multiple ticks work correctly"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        body.tick()
-        body.tick()
-        body.tick()
+        await body.tick()
+        await body.tick()
+        await body.tick()
 
         assert state.tick == 3
 
@@ -270,7 +279,8 @@ class TestSleepQueue:
 class TestBodyWithNameInteractor:
     """Test Body working with NameInteractor"""
 
-    def test_naming_updates_spatial_substrate(self):
+    @pytest.mark.asyncio
+    async def test_naming_updates_spatial_substrate(self):
         """NameInteractor modifies body.spaces"""
         mind = Mind(interactors={"name": NameInteractor(body=None)})
         state = SystemState(tick=0, executions=[])
@@ -278,14 +288,15 @@ class TestBodyWithNameInteractor:
 
         mind.interactors["name"].body = body
 
-        body.execute_now("@root", r"\name #dev @(alice, bob, charlie) ---")
+        await body.execute_now("@root", r"\name #dev @(alice, bob, charlie) ---")
 
         assert "#dev" in body.spaces
         assert body.spaces["#dev"].members == {"@alice", "@bob", "@charlie"}
         assert "@alice" in body.entity_spaces
         assert "#dev" in body.entity_spaces["@alice"]
 
-    def test_multiple_namings(self):
+    @pytest.mark.asyncio
+    async def test_multiple_namings(self):
         """Multiple naming operations work"""
         mind = Mind(interactors={"name": NameInteractor(body=None)})
         state = SystemState(tick=0, executions=[])
@@ -293,8 +304,8 @@ class TestBodyWithNameInteractor:
 
         mind.interactors["name"].body = body
 
-        body.execute_now("@root", r"\name #dev @(alice, bob) ---")
-        body.execute_now("@root", r"\name #design @(bob, charlie) ---")
+        await body.execute_now("@root", r"\name #dev @(alice, bob) ---")
+        await body.execute_now("@root", r"\name #design @(bob, charlie) ---")
 
         assert "#dev" in body.spaces
         assert "#design" in body.spaces
@@ -306,24 +317,26 @@ class TestBodyWithNameInteractor:
 class TestAutonomousOperation:
     """Test autonomous run() method"""
 
-    def test_run_stops_at_max_ticks(self):
+    @pytest.mark.asyncio
+    async def test_run_stops_at_max_ticks(self):
         """run() stops after max_ticks"""
         mind = Mind(interactors={})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state, tick_interval=0.001)  # Fast ticks
 
-        body.run(max_ticks=5)
+        await body.run(max_ticks=5)
 
         assert state.tick == 5
 
-    def test_run_executes_multiple_ticks(self):
+    @pytest.mark.asyncio
+    async def test_run_executes_multiple_ticks(self):
         """run() executes multiple ticks"""
         mind = Mind(interactors={"echo": EchoInteractor()})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state, tick_interval=0.001)
 
-        body.execute_now("@alice", r"\echo Test ---")
-        body.run(max_ticks=3)
+        await body.execute_now("@alice", r"\echo Test ---")
+        await body.run(max_ticks=3)
 
         # Tick 0: saves log with 1 execution
         # Ticks 1-2: no executions
@@ -333,34 +346,37 @@ class TestAutonomousOperation:
 class TestEdgeCases:
     """Test edge cases and error conditions"""
 
-    def test_execute_now_with_invalid_command(self):
+    @pytest.mark.asyncio
+    async def test_execute_now_with_invalid_command(self):
         """execute_now handles invalid commands"""
         mind = Mind(interactors={})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        output = body.execute_now("@alice", r"\unknown test ---")
+        output = await body.execute_now("@alice", r"\unknown test ---")
 
         assert "ERROR" in output
 
-    def test_tick_with_no_executions(self):
+    @pytest.mark.asyncio
+    async def test_tick_with_no_executions(self):
         """Tick works when no executions occurred"""
         mind = Mind(interactors={})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        body.tick()
+        await body.tick()
 
         assert state.tick == 1
         assert len(state.executions) == 0
 
-    def test_body_with_empty_mind(self):
+    @pytest.mark.asyncio
+    async def test_body_with_empty_mind(self):
         """Body works with mind that has no interactors"""
         mind = Mind(interactors={})
         state = SystemState(tick=0, executions=[])
         body = Body(mind, state)
 
-        output = body.execute_now("@test", r"\anything ---")
+        output = await body.execute_now("@test", r"\anything ---")
 
         assert "ERROR" in output
 

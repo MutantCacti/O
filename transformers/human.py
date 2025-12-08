@@ -1,52 +1,46 @@
 """
-Human transformer - stdin/HTTP input device.
+Human transformer - REFERENCE STUB.
 
-Polls for human input from stdin or HTTP endpoint.
-No scheduling needed - humans type when ready.
+This is a temporary implementation for testing. It does NOT follow the
+stateless transformer interface (think()) because human input requires
+a different model: humans submit commands when ready, not on demand.
+
+TODO: Replace with proper human input handling in v0.2.
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Dict, Any
 from .base import Transformer
 
 
 class HumanTransformer(Transformer):
     """
-    Human input device.
+    REFERENCE STUB - for testing only.
 
-    Simple polling - check if human has typed a command.
-    No wake conditions, no scheduling - just direct input.
+    Does not implement the stateless think() interface properly.
+    Humans submit input asynchronously via submit(), not on-demand.
+
+    Will be replaced with proper human input handling.
     """
 
-    def __init__(self, input_source="stdin"):
-        """
-        Initialize human transformer.
+    def __init__(self):
+        self.pending_input = None  # (entity, command) buffer
 
-        Args:
-            input_source: "stdin" or "http" (future: HTTP endpoint)
+    async def think(self, entity: str, context: Dict[str, Any]) -> Optional[str]:
         """
-        self.input_source = input_source
-        self.pending_input = None  # Buffer for testing
+        STUB: Returns pending input if entity matches, else None.
 
-    def poll(self, body) -> Optional[Tuple[str, str]]:
+        This is not how human input should work - it's just for testing.
+        Real human input needs an async queue per entity.
         """
-        Poll for human input.
-
-        For now: Check pending_input buffer (for testing)
-        Future: Check stdin or HTTP endpoint
-
-        Returns:
-            (entity, command) if input available, None otherwise
-        """
-        if self.pending_input:
-            result = self.pending_input
+        if self.pending_input and self.pending_input[0] == entity:
+            _, command = self.pending_input
             self.pending_input = None
-            return result
-
+            return command
         return None
 
     def submit(self, entity: str, command: str):
         """
-        Submit command for next poll (testing helper).
+        Submit command for testing.
 
         Args:
             entity: Entity submitting command

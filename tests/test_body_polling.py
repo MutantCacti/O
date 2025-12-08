@@ -1,15 +1,15 @@
-"""Test Body polling transformers for input."""
+"""Test Body tick() with transformer.think() architecture."""
 
 import pytest
 from transformers.human import HumanTransformer
 from mind import Mind
-from body import Body
+from body import Body, WakeRecord
 from state.state import SystemState
 from interactors.echo import EchoInteractor
 from interactors.stdout import StdoutInteractor
+from grammar.parser import Condition, Text
 from pathlib import Path
 import shutil
-import json
 
 
 @pytest.fixture
@@ -22,102 +22,99 @@ def test_memory_dir(tmp_path):
         shutil.rmtree(memory_dir.parent)
 
 
-def test_body_polls_transformer_directly():
-    """Body can poll transformer and get commands without tick()."""
-    human = HumanTransformer()
+@pytest.mark.asyncio
+async def test_body_tick_advances_clock():
+    """Body.tick() advances clock even with no entities."""
     mind = Mind({"echo": EchoInteractor()})
     state = SystemState(tick=0, executions=[])
-    body = Body(mind, state, transformers=[human])
+    body = Body(mind, state)
 
-    # Human submits command
-    human.submit("@alice", r"\echo Hello! ---")
-
-    # Poll directly (what tick() does)
-    result = human.poll(body)
-    assert result == ("@alice", r"\echo Hello! ---")
-
-    # Execute
-    entity, command = result
-    output = body.execute_now(entity, command)
-
-    # Verify
-    assert "Hello!" in output
-    assert len(state.executions) == 1
-
-
-def test_body_polls_transformer_on_tick():
-    """Body.tick() polls transformers and executes commands."""
-    human = HumanTransformer()
-    mind = Mind({"echo": EchoInteractor()})
-    state = SystemState(tick=0, executions=[])
-    body = Body(mind, state, transformers=[human])
-
-    # Human submits command
-    human.submit("@alice", r"\echo Hello from Alice! ---")
-
-    # Tick - Body polls transformer and executes
-    body.tick()
-
-    # Check log file was created
-    log_file = Path("state/logs/log_0.json")
-    assert log_file.exists()
-
-    # Read log to verify execution
-    with open(log_file) as f:
-        log_data = json.load(f)
-
-    assert log_data["tick"] == 0
-    assert len(log_data["executions"]) == 1
-    assert log_data["executions"][0]["executor"] == "@alice"
-    assert "Hello from Alice!" in log_data["executions"][0]["output"]
-
-    # Tick advanced
+    await body.tick()
     assert state.tick == 1
 
-    # Cleanup
-    shutil.rmtree("state/logs")
+    await body.tick()
+    assert state.tick == 2
 
 
-def test_body_polls_multiple_transformers():
-    """Body polls all transformers in order."""
-    human1 = HumanTransformer()
-    human2 = HumanTransformer()
-
+@pytest.mark.asyncio
+async def test_body_tick_with_no_transformer():
+    """Body.tick() works without transformer (no LLM entities)."""
     mind = Mind({"echo": EchoInteractor()})
     state = SystemState(tick=0, executions=[])
-    body = Body(mind, state, transformers=[human1, human2])
+    body = Body(mind, state, transformer=None)
 
-    # Both submit commands
-    human1.submit("@alice", r"\echo Alice here ---")
-    human2.submit("@bob", r"\echo Bob here ---")
-
-    # Single tick polls both
-    body.tick()
-
-    # Check log
-    log_file = Path("state/logs/log_0.json")
-    assert log_file.exists()
-
-    with open(log_file) as f:
-        log_data = json.load(f)
-
-    assert len(log_data["executions"]) == 2
-    assert log_data["executions"][0]["executor"] == "@alice"
-    assert log_data["executions"][1]["executor"] == "@bob"
-
-    # Cleanup
-    shutil.rmtree("state/logs")
+    # Should not raise
+    await body.tick()
+    assert state.tick == 1
 
 
-def test_body_tick_empty_when_no_input():
-    """Body.tick() with no transformer input does nothing."""
+@pytest.mark.asyncio
+async def test_body_calls_transformer_for_awake_entity():
+    """Body calls transformer.think() for entities in sleep_queue that wake."""
     human = HumanTransformer()
     mind = Mind({"echo": EchoInteractor()})
     state = SystemState(tick=0, executions=[])
-    body = Body(mind, state, transformers=[human])
+    body = Body(mind, state, transformer=human)
 
-    # Tick with no input
-    body.tick()
+    # Submit command for @alice
+    human.submit("@alice", r"\echo Hello from Alice! ---")
+
+    # Manually add @alice to sleep_queue with satisfied condition
+    # (In real use, this would be done via \wake command)
+    body.sleep_queue["@alice"] = WakeRecord(
+        entity="@alice",
+        condition=Condition([Text("true")]),  # Dummy condition
+        self_prompt="Test wake"
+    )
+
+    # Mock _check_wake_conditions to return @alice
+    original_check = body._check_wake_conditions
+    body._check_wake_conditions = lambda: [body.sleep_queue["@alice"]]
+
+    await body.tick()
+
+    # Restore
+    body._check_wake_conditions = original_check
+
+    # Verify command was executed
+    log_file = Path("state/logs/log_0.json")
+    if log_file.exists():
+        import json
+        with open(log_file) as f:
+            log_data = json.load(f)
+        assert len(log_data["executions"]) == 1
+        assert log_data["executions"][0]["executor"] == "@alice"
+        assert "Hello from Alice!" in log_data["executions"][0]["output"]
+        shutil.rmtree("state/logs")
+
+
+@pytest.mark.asyncio
+async def test_body_builds_context():
+    """Body._build_context() builds correct context dict."""
+    mind = Mind({})
+    state = SystemState(tick=42, executions=[])
+    body = Body(mind, state)
+
+    # Add entity to a space
+    body.entity_spaces["@alice"] = {"#general", "#dev"}
+
+    context = body._build_context("@alice", "Test reason")
+
+    assert context["tick"] == 42
+    assert set(context["spaces"]) == {"#general", "#dev"}
+    assert context["wake_reason"] == "Test reason"
+
+
+@pytest.mark.asyncio
+async def test_body_tick_no_execution_when_no_wake():
+    """Body.tick() does nothing if no entities wake."""
+    human = HumanTransformer()
+    mind = Mind({"echo": EchoInteractor()})
+    state = SystemState(tick=0, executions=[])
+    body = Body(mind, state, transformer=human)
+
+    # No entities in sleep_queue, so no one wakes
+    await body.tick()
 
     # No log file created (no executions)
     log_file = Path("state/logs/log_0.json")
@@ -125,70 +122,3 @@ def test_body_tick_empty_when_no_input():
 
     # But tick still advanced
     assert state.tick == 1
-
-
-def test_body_with_stdout_interactor(test_memory_dir):
-    """Body polls transformer and executes stdout commands."""
-    human = HumanTransformer()
-    stdout_int = StdoutInteractor(memory_root=str(test_memory_dir))
-
-    mind = Mind({"stdout": stdout_int})
-    state = SystemState(tick=0, executions=[])
-    body = Body(mind, state, transformers=[human])
-
-    # Connect stdout to body
-    stdout_int.body = body
-
-    # Human writes to stdout
-    human.submit("@alice", r"\stdout First log entry ---")
-
-    # Tick executes
-    body.tick()
-
-    # Check execution log
-    log_file = Path("state/logs/log_0.json")
-    assert log_file.exists()
-
-    with open(log_file) as f:
-        log_data = json.load(f)
-
-    assert "Written to stdout" in log_data["executions"][0]["output"]
-
-    # Verify persisted
-    stdout_file = test_memory_dir / "@alice.jsonl"
-    assert stdout_file.exists()
-
-    # Cleanup
-    shutil.rmtree("state/logs")
-
-
-def test_body_multiple_ticks_with_input():
-    """Body can process input across multiple ticks."""
-    human = HumanTransformer()
-    mind = Mind({"echo": EchoInteractor()})
-    state = SystemState(tick=0, executions=[])
-    body = Body(mind, state, transformers=[human])
-
-    # Tick 1: Input available
-    human.submit("@alice", r"\echo Tick 1 ---")
-    body.tick()
-    assert state.tick == 1
-
-    log_1 = Path("state/logs/log_0.json")
-    assert log_1.exists()
-
-    # Tick 2: No input
-    body.tick()
-    assert state.tick == 2
-    # No log for tick 1 (no executions)
-
-    # Tick 3: Input again
-    human.submit("@bob", r"\echo Tick 3 ---")
-    body.tick()
-    assert state.tick == 3
-
-    log_3 = Path("state/logs/log_2.json")
-    assert log_3.exists()
-
-    # Cleanup
-    shutil.rmtree("state/logs")

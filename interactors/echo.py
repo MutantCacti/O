@@ -1,4 +1,4 @@
-"""
+r"""
 Echo interactor - simplest possible interactor for testing.
 
 \echo Hello world ---
@@ -24,25 +24,18 @@ class EchoInteractor(Interactor):
         Echo back the text content of the command.
 
         Args:
-            cmd: Parsed command tree
+            cmd: Parsed command (cmd.name is "echo", cmd.content is arguments)
             executor: Who is executing (unused by echo)
 
         Returns:
             "Echo: <text content>"
         """
-        # Extract all text nodes, skip command name
+        # Extract all text nodes (command name already stripped by parser)
         text_parts = []
-        first = True
         for node in cmd.content:
             if isinstance(node, Text):
                 content = node.text.strip()
-                if first:
-                    # First text node contains "echo ..." - strip "echo"
-                    content = content.split(maxsplit=1)
-                    if len(content) > 1:
-                        text_parts.append(content[1])
-                    first = False
-                elif content:
+                if content:
                     text_parts.append(content)
 
         message = " ".join(text_parts)

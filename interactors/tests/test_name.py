@@ -136,7 +136,8 @@ class TestNameInteractor:
 class TestNameIntegration:
     """Test name interactor through Mind→Body→State chain"""
 
-    def test_name_via_mind(self):
+    @pytest.mark.asyncio
+    async def test_name_via_mind(self):
         """Naming works through the full execution chain"""
         state = SystemState(tick=0, executions=[])
         body = Body(None, state)  # Mind set later
@@ -146,7 +147,7 @@ class TestNameIntegration:
         body.mind = mind
 
         # Execute via body.execute_now
-        output = body.execute_now("@root", r"\name #general @(alice, bob, charlie) ---")
+        output = await body.execute_now("@root", r"\name #general @(alice, bob, charlie) ---")
 
         # Verify output
         assert "Named #general" in output
@@ -162,7 +163,8 @@ class TestNameIntegration:
         assert "#general" in body.spaces
         assert body.spaces["#general"].members == {"@alice", "@bob", "@charlie"}
 
-    def test_name_multiple_via_body(self):
+    @pytest.mark.asyncio
+    async def test_name_multiple_via_body(self):
         """Multiple naming commands work in sequence"""
         state = SystemState(tick=0, executions=[])
         body = Body(None, state)
@@ -171,8 +173,8 @@ class TestNameIntegration:
         body.mind = mind
 
         # Execute multiple naming commands
-        body.execute_now("@root", r"\name #dev @(alice, bob) ---")
-        body.execute_now("@root", r"\name #design @(bob, charlie) ---")
+        await body.execute_now("@root", r"\name #dev @(alice, bob) ---")
+        await body.execute_now("@root", r"\name #design @(bob, charlie) ---")
 
         # Verify both spaces exist
         assert "#dev" in body.spaces
@@ -186,7 +188,8 @@ class TestNameIntegration:
         # Verify state logged both
         assert len(state.executions) == 2
 
-    def test_name_and_tick(self):
+    @pytest.mark.asyncio
+    async def test_name_and_tick(self):
         """Naming commands persist through tick"""
         state = SystemState(tick=0, executions=[])
         body = Body(None, state)
@@ -195,14 +198,14 @@ class TestNameIntegration:
         body.mind = mind
 
         # Execute naming
-        body.execute_now("@root", r"\name #family @(alice, bob) ---")
+        await body.execute_now("@root", r"\name #family @(alice, bob) ---")
 
         # Verify pre-tick state
         assert "#family" in body.spaces
         assert len(state.executions) == 1
 
         # Tick (saves log and advances)
-        body.tick()
+        await body.tick()
 
         # Verify post-tick state
         assert state.tick == 1

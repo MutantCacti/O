@@ -5,7 +5,8 @@ Takes command strings, parses them, executes them.
 That's it.
 """
 
-from grammar.parser import parse, Command, Text
+import asyncio
+from grammar.parser import parse, Command
 
 
 class Mind:
@@ -26,7 +27,7 @@ class Mind:
         """
         self.interactors = interactors
 
-    def execute(self, command_str: str, executor: str = None) -> str:
+    async def execute(self, command_str: str, executor: str = None) -> str:
         """
         Execute a command, return output.
 
@@ -41,31 +42,18 @@ class Mind:
             # Parse
             cmd = parse(command_str)
 
-            # Find interactor
-            command_name = self._get_command_name(cmd)
-
-            if command_name not in self.interactors:
-                return f"ERROR: Unknown command '{command_name}'"
+            # Find interactor by command name (provided by parser)
+            if cmd.name not in self.interactors:
+                return f"ERROR: Unknown command '{cmd.name}'"
 
             # Execute (pass executor context)
-            interactor = self.interactors[command_name]
-            return interactor.execute(cmd, executor=executor)
+            interactor = self.interactors[cmd.name]
+            result = interactor.execute(cmd, executor=executor)
+
+            # Support both sync and async interactors
+            if asyncio.iscoroutine(result):
+                return await result
+            return result
 
         except Exception as e:
             return f"ERROR: {e}"
-
-    def _get_command_name(self, cmd: Command) -> str:
-        """
-        Extract command name from first Text node.
-
-        Handles:
-        - \\say hello --- (first node is Text)
-        - \\say @alice hello --- (first node is Entity, need to find Text)
-        """
-        for node in cmd.content:
-            if isinstance(node, Text):
-                content = node.text.strip()
-                if content:
-                    # Get first word
-                    return content.split()[0]
-        return ""

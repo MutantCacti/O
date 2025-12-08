@@ -83,7 +83,8 @@ def test_wake_without_prompt():
     assert record.self_prompt is None
 
 
-def test_wake_via_body_execute():
+@pytest.mark.asyncio
+async def test_wake_via_body_execute():
     """Wake through full Body.execute_now() flow."""
     wake = WakeInteractor()
     mind = Mind({"wake": wake})
@@ -94,7 +95,7 @@ def test_wake_via_body_execute():
     wake.body = body
 
     # Execute wake command
-    result = body.execute_now("@alice", r"\wake ?(response(@bob)) Test prompt ---")
+    result = await body.execute_now("@alice", r"\wake ?(response(@bob)) Test prompt ---")
 
     assert "Registered wake condition" in result
 

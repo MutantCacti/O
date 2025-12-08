@@ -1,42 +1,53 @@
 """
-Transformer base class - I/O devices for O.
+Transformer base class - stateless inference services for O.
 
-Transformers are external agents (humans, LLMs) that Body polls for input.
-They are NOT part of the O system - they are users of it, like devices.
+Transformers are inference providers (LLMs, human input) that Body uses
+to generate commands for entities. They are stateless services - they don't
+own entities, they serve them.
 
-Body.tick() polls transformers to get commands, then executes those commands
-through Mind → Interactors → State.
+Body owns entities. Body decides when entities wake. Body calls transformers
+to generate commands for awake entities.
+
+All transformers are async for safe concurrent I/O.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from typing import Optional, Dict, Any
 
 
 class Transformer(ABC):
     """
-    Abstract I/O device that Body polls for entity commands.
+    Abstract inference service that generates commands for entities.
+
+    Transformers are STATELESS. They don't own entities - Body does.
+    Body calls transformer.think(entity, context) when an entity needs to act.
 
     Different transformer types:
-    - HumanTransformer: Polls stdin/HTTP for human input
-    - AnthropicTransformer: Polls wake conditions, calls Claude API
-    - DeepSeekTransformer: Polls wake conditions, calls DeepSeek API
+    - LLMTransformer: Calls LLM API (DeepSeek, Anthropic, etc.)
+    - HumanTransformer: Queues human input, returns when available
 
-    Body doesn't care about the difference - it just polls and executes.
+    Body doesn't care about the difference - it just asks for commands.
     """
 
     @abstractmethod
-    def poll(self, body) -> Optional[Tuple[str, str]]:
+    async def think(self, entity: str, context: Dict[str, Any]) -> Optional[str]:
         """
-        Poll this device for input.
+        Generate a command for an entity given context.
 
         Args:
-            body: Body instance (provides context - spaces, state, etc.)
+            entity: Entity name (e.g., "@alice")
+            context: Dict with entity's view of the world:
+                - tick: Current tick number
+                - spaces: Spaces entity is in
+                - messages: Recent messages in those spaces
+                - stdout: Entity's recent stdout
+                - wake_reason: Why entity woke up (if applicable)
 
         Returns:
-            (entity, command_string) if input is ready
-            None if no input available
+            Command string (e.g., "\\say #general Hello! ---")
+            None if no command generated
 
-        Example:
-            ("@alice", "\\say #general Hello everyone! ---")
+        Note: This is a stateless call. Transformer should not store
+        per-entity state. All context comes from the Body.
         """
         pass

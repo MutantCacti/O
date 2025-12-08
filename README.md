@@ -144,17 +144,25 @@ tests/            # Integration tests
 
 ## Current status
 
-- ✅ Grammar parser (full O syntax)
-- ✅ Mind execution engine
-- ✅ Body tick loop with transformer polling
+- ✅ Grammar parser (full O syntax with explicit command names)
+- ✅ Mind execution engine (async)
+- ✅ Body tick loop with transformer polling (async, concurrent)
 - ✅ State persistence (logs + memory)
 - ✅ DeepSeek transformer (OpenAI-compatible)
-- ✅ Core interactors (stdout, name, echo, wake)
-- ⏳ Wake condition evaluation
-- ⏳ Entity-to-entity communication (\say)
-- ⏳ Additional transformers (Anthropic, local)
+- ✅ Core interactors (stdout, name, echo, wake, say)
+- ✅ App entry point with lifecycle management
+- ⏳ Wake condition evaluation (conditions register, but don't trigger LLM)
+- ⏳ Transformer-as-service refactor (see limitations)
 
-**Tests**: 257 passing
+**Tests**: 282 passing
+
+## Known limitations (v0.1)
+
+**Transformer-Entity coupling**: Currently, each Transformer is bound to one entity at initialization (`DeepSeekTransformer(entity="@alice")`). For 300 entities, this means 300 transformer instances and 300 concurrent API calls per tick - a "thundering herd" problem.
+
+**Future architecture**: Transformers should be stateless services. The Body should own entity definitions (with a `provider` field), and request inference from shared transformer pools. This decoupling is planned for v0.2.
+
+**Wake → Think gap**: Wake conditions (`\wake ?(condition) prompt ---`) register correctly but only execute a canned `resume_command`. They don't trigger LLM inference. Fixing this requires the transformer refactor above.
 
 ## Contributing
 

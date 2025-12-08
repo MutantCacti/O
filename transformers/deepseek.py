@@ -1,114 +1,82 @@
 """
-DeepSeek transformer - LLM entity I/O device.
+DeepSeek transformer - stateless LLM inference service.
 
-Minimal implementation: polls body state, calls DeepSeek, returns command.
-No wake conditions yet - just demonstrates the transformer pattern with real LLM.
+Calls DeepSeek API to generate commands for any entity.
+Transformer is stateless - Body owns entities and their state.
 """
 
 import os
 import re
-from typing import Optional, Tuple, Dict, Any
-from openai import OpenAI
+from typing import Optional, Dict, Any
+from openai import AsyncOpenAI
 
 from .base import Transformer
 
 
 class DeepSeekTransformer(Transformer):
     """
-    LLM entity that generates commands via DeepSeek API.
+    Stateless LLM service that generates commands via DeepSeek API.
 
-    Minimal MVP: Always responds when polled (no wake checking).
-    Demonstrates transformer → LLM → command flow.
+    Body calls think(entity, context) when an entity needs to act.
+    Transformer doesn't own entities - it serves them.
     """
 
     def __init__(
         self,
-        entity: str,
         api_key: str = None,
         model: str = "deepseek-chat"
     ):
         """
-        Initialize DeepSeek transformer.
+        Initialize DeepSeek transformer service.
 
         Args:
-            entity: Entity name (e.g., "@alice")
             api_key: DeepSeek API key (defaults to DEEPSEEK_API_KEY env var)
             model: Model name (default: deepseek-chat)
         """
-        self.entity = entity
         self.api_key = api_key or os.getenv('DEEPSEEK_API_KEY')
         self.model = model
 
         if not self.api_key:
             raise ValueError("DeepSeek API key required (DEEPSEEK_API_KEY env var or api_key parameter)")
 
-        # Initialize OpenAI client with DeepSeek base URL
-        self.client = OpenAI(
+        # Initialize async OpenAI client with DeepSeek base URL
+        self.client = AsyncOpenAI(
             api_key=self.api_key,
             base_url="https://api.deepseek.com"
         )
 
-        # Track whether we've responded this tick (simple throttle)
-        self._responded_this_tick = False
-        self._last_tick = -1
-
-    def poll(self, body) -> Optional[Tuple[str, str]]:
+    async def think(self, entity: str, context: Dict[str, Any]) -> Optional[str]:
         """
-        Poll body state, call DeepSeek, return command.
-
-        MVP: Responds once per tick with simple context.
+        Generate a command for an entity given context.
 
         Args:
-            body: Body instance (full system context)
+            entity: Entity name (e.g., "@alice")
+            context: Dict with entity's view of the world
 
         Returns:
-            (entity, command) tuple, or None if already responded this tick
+            Command string, or None if generation failed
         """
-        # Simple throttle: only respond once per tick
-        if body.state.tick == self._last_tick:
-            return None
-
-        # Build context
-        context = self._build_context(body)
-
         # Call DeepSeek API
-        response = self._call_api(context)
+        response = await self._call_api(entity, context)
 
-        # Extract command
-        command = self._extract_command(response)
+        # Extract command from response
+        return self._extract_command(response)
 
-        # Update throttle
-        self._last_tick = body.state.tick
-
-        return (self.entity, command)
-
-    def _build_context(self, body) -> Dict[str, Any]:
-        """
-        Build minimal context for LLM.
-
-        MVP: Just entity identity and current tick.
-        Future: Add spaces, history, messages, etc.
-        """
-        return {
-            "entity": self.entity,
-            "tick": body.state.tick,
-        }
-
-    def _call_api(self, context: Dict[str, Any]) -> str:
+    async def _call_api(self, entity: str, context: Dict[str, Any]) -> str:
         """
         Call DeepSeek API with context.
 
         DeepSeek is stateless - full context sent each call.
         Automatic caching handles repeated system prompts efficiently.
         """
-        system_prompt = self._format_system_prompt(context)
+        system_prompt = self._format_system_prompt(entity, context)
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "What do you want to do?"}
         ]
 
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             temperature=0.7,
@@ -117,26 +85,34 @@ class DeepSeekTransformer(Transformer):
 
         return response.choices[0].message.content
 
-    def _format_system_prompt(self, context: Dict[str, Any]) -> str:
+    def _format_system_prompt(self, entity: str, context: Dict[str, Any]) -> str:
         """Format context into system prompt."""
-        return f"""You are {context['entity']}, an entity in the O system.
-Current tick: {context['tick']}
+        tick = context.get('tick', 0)
+        wake_reason = context.get('wake_reason', '')
 
+        prompt = f"""You are {entity}, an entity in the O system.
+Current tick: {tick}
+"""
+        if wake_reason:
+            prompt += f"You woke up because: {wake_reason}\n"
+
+        prompt += """
 Respond with a single O command to execute.
 Format: \\command arguments ---
 
 Available commands:
 - \\stdout message ---    (write to your log)
 - \\echo message ---      (echo back text)
+"""
+        prompt += f"\nExample: \\stdout Hello from {entity} at tick {tick} ---"
+        return prompt
 
-Example: \\stdout Hello from {context['entity']} at tick {context['tick']} ---"""
-
-    def _extract_command(self, response: str) -> str:
+    def _extract_command(self, response: str) -> Optional[str]:
         """
         Extract O command from LLM response.
 
         Looks for pattern: \\command ... ---
-        Falls back to logging if no valid command found.
+        Returns None if no valid command found (caller decides fallback).
         """
         # Pattern: backslash + word + content + triple dash
         pattern = r'\\[^\\]+?---'
@@ -146,6 +122,5 @@ Example: \\stdout Hello from {context['entity']} at tick {context['tick']} ---""
             # Return first command found, stripped
             return matches[0].strip()
 
-        # Fallback: log the response
-        safe_response = response.replace('\\', '\\\\').replace('---', '').strip()[:100]
-        return f"\\stdout [LLM response had no valid command: {safe_response}] ---"
+        # No valid command found
+        return None
