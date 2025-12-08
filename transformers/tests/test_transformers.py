@@ -19,52 +19,64 @@ class TestHumanTransformerStub:
         human = HumanTransformer()
         assert isinstance(human, Transformer)
 
-    @pytest.mark.asyncio
-    async def test_think_returns_none_when_empty(self):
-        """think() returns None when no input submitted."""
+    def test_list_entities_empty_initially(self):
+        """list_entities() returns empty list when nothing submitted."""
         human = HumanTransformer()
-        result = await human.think("@alice", {"tick": 0})
+        assert human.list_entities() == []
+
+    def test_list_entities_returns_submitted(self):
+        """list_entities() returns entities with pending commands."""
+        human = HumanTransformer()
+        human.submit("@alice", r"\echo Hello ---")
+        human.submit("@bob", r"\echo Hi ---")
+
+        entities = human.list_entities()
+        assert "@alice" in entities
+        assert "@bob" in entities
+
+    @pytest.mark.asyncio
+    async def test_read_command_returns_none_when_empty(self):
+        """read_command() returns None when no input submitted."""
+        human = HumanTransformer()
+        result = await human.read_command("@alice")
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_think_returns_command_for_matching_entity(self):
-        """think() returns submitted command for matching entity."""
+    async def test_read_command_returns_submitted(self):
+        """read_command() returns submitted command."""
         human = HumanTransformer()
         human.submit("@alice", r"\echo Hello ---")
 
-        result = await human.think("@alice", {"tick": 0})
+        result = await human.read_command("@alice")
         assert result == r"\echo Hello ---"
 
     @pytest.mark.asyncio
-    async def test_think_returns_none_for_wrong_entity(self):
-        """think() returns None if entity doesn't match."""
-        human = HumanTransformer()
-        human.submit("@alice", r"\echo Hello ---")
-
-        result = await human.think("@bob", {"tick": 0})
-        assert result is None
-
-        # Command still pending for @alice
-        result = await human.think("@alice", {"tick": 0})
-        assert result == r"\echo Hello ---"
-
-    @pytest.mark.asyncio
-    async def test_think_clears_after_match(self):
-        """think() clears pending input after successful match."""
+    async def test_read_command_clears_after_read(self):
+        """read_command() clears pending after successful read."""
         human = HumanTransformer()
         human.submit("@alice", r"\echo Hello ---")
 
         # First call returns command
-        result = await human.think("@alice", {"tick": 0})
+        result = await human.read_command("@alice")
         assert result == r"\echo Hello ---"
 
         # Second call returns None (cleared)
-        result = await human.think("@alice", {"tick": 0})
+        result = await human.read_command("@alice")
         assert result is None
 
-    def test_submit_stores_entity_and_command(self):
-        """submit() stores entity and command tuple."""
+    @pytest.mark.asyncio
+    async def test_write_output_stores_result(self):
+        """write_output() stores result for retrieval."""
+        human = HumanTransformer()
+        await human.write_output("@alice", {"tick": 0, "output": "test"})
+
+        outputs = human.get_outputs("@alice")
+        assert len(outputs) == 1
+        assert outputs[0]["output"] == "test"
+
+    def test_submit_stores_command(self):
+        """submit() stores command for entity."""
         human = HumanTransformer()
         human.submit("@bob", r"\stdout Test ---")
 
-        assert human.pending_input == ("@bob", r"\stdout Test ---")
+        assert "@bob" in human.list_entities()

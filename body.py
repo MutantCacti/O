@@ -167,28 +167,45 @@ class Body:
         """
         One heartbeat of the environment.
 
-        1. Check wake conditions for sleeping entities
-        2. For each awake entity: build context, call transformer.think(), execute command
-        3. Persist execution log to disk
-        4. Advance clock
+        1. Poll transformer for commands from all entities
+        2. Execute any commands received
+        3. Write results back to transformer
+        4. Persist execution log to disk
+        5. Advance clock
 
         This runs autonomously in the main loop.
+        Errors in individual entity execution don't stop the tick.
         """
-        # Check who should wake
-        ready_entities = self._check_wake_conditions()
+        # Poll all entities for commands via transformer
+        if self.transformer:
+            try:
+                entities = self.transformer.list_entities()
+            except Exception:
+                # Transformer error - skip this tick's polling
+                entities = []
 
-        # Execute ready entities via transformer
-        if self.transformer and ready_entities:
-            for record in ready_entities:
-                # Build context for entity
-                context = self._build_context(record.entity, record.self_prompt)
+            for entity in entities:
+                try:
+                    command = await self.transformer.read_command(entity)
 
-                # Ask transformer to think for this entity
-                command = await self.transformer.think(record.entity, context)
+                    if command:
+                        output = await self.mind.execute(command, executor=entity)
+                        self.state.add_execution(entity, command, output)
 
-                if command:
-                    output = await self.mind.execute(command, executor=record.entity)
-                    self.state.add_execution(record.entity, command, output)
+                        # Write result back (best effort)
+                        try:
+                            await self.transformer.write_output(entity, {
+                                "tick": self.state.tick,
+                                "command": command,
+                                "output": output
+                            })
+                        except Exception:
+                            # Output write failed - execution still counts
+                            pass
+
+                except Exception:
+                    # Entity execution failed - continue with others
+                    pass
 
         # Persist execution log
         if self.state.executions:
@@ -196,24 +213,6 @@ class Body:
 
         # Advance clock
         self.state.advance_tick()
-
-    def _build_context(self, entity: str, wake_reason: str = None) -> Dict[str, Any]:
-        """
-        Build context dict for an entity.
-
-        Args:
-            entity: Entity name
-            wake_reason: Why entity woke up (self_prompt from WakeRecord)
-
-        Returns:
-            Context dict for transformer.think()
-        """
-        return {
-            "tick": self.state.tick,
-            "spaces": list(self.entity_spaces.get(entity, set())),
-            "wake_reason": wake_reason,
-            # TODO: Add messages, stdout history, etc.
-        }
 
     # ===== Autonomous Operation =====
 
@@ -240,8 +239,15 @@ class Body:
             await asyncio.sleep(self.tick_interval)
 
     def stop(self):
-        """Signal the run loop to stop."""
+        """Signal the run loop to stop and cleanup resources."""
         self._running = False
+
+        # Cleanup transformer resources
+        if self.transformer and hasattr(self.transformer, 'close'):
+            try:
+                self.transformer.close()
+            except Exception:
+                pass
 
     # ===== Direct Intervention =====
 

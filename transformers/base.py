@@ -1,53 +1,64 @@
 """
-Transformer base class - stateless inference services for O.
+Transformer base class - I/O substrate for O.
 
-Transformers are inference providers (LLMs, human input) that Body uses
-to generate commands for entities. They are stateless services - they don't
-own entities, they serve them.
+Transformers are the interface between O and external programs (humans, LLMs,
+other O instances). They provide:
+- list_entities(): Which entities have I/O channels
+- read_command(): Non-blocking read from entity's input
+- write_output(): Write execution results to entity's output
 
-Body owns entities. Body decides when entities wake. Body calls transformers
-to generate commands for awake entities.
+The fundamental implementation is FifoManager - per-entity named pipes.
+All other "transformers" are external programs that write to those FIFOs.
 
 All transformers are async for safe concurrent I/O.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, List
 
 
 class Transformer(ABC):
     """
-    Abstract inference service that generates commands for entities.
+    Abstract I/O substrate for entity commands.
 
-    Transformers are STATELESS. They don't own entities - Body does.
-    Body calls transformer.think(entity, context) when an entity needs to act.
+    Body polls transformers each tick to read commands from entities.
+    Commands are executed through Mind, results written back.
 
-    Different transformer types:
-    - LLMTransformer: Calls LLM API (DeepSeek, Anthropic, etc.)
-    - HumanTransformer: Queues human input, returns when available
-
-    Body doesn't care about the difference - it just asks for commands.
+    The transformer doesn't decide WHAT entities do - it just moves
+    commands in and results out. Decision-making happens externally
+    (in LLM agents, human terminals, etc.) which write to the I/O channels.
     """
 
     @abstractmethod
-    async def think(self, entity: str, context: Dict[str, Any]) -> Optional[str]:
+    def list_entities(self) -> List[str]:
         """
-        Generate a command for an entity given context.
+        List all entities with I/O channels.
+
+        Returns:
+            List of entity names (e.g., ["@alice", "@bob"])
+        """
+        pass
+
+    @abstractmethod
+    async def read_command(self, entity: str) -> Optional[str]:
+        """
+        Non-blocking read from entity's input channel.
 
         Args:
             entity: Entity name (e.g., "@alice")
-            context: Dict with entity's view of the world:
-                - tick: Current tick number
-                - spaces: Spaces entity is in
-                - messages: Recent messages in those spaces
-                - stdout: Entity's recent stdout
-                - wake_reason: Why entity woke up (if applicable)
 
         Returns:
-            Command string (e.g., "\\say #general Hello! ---")
-            None if no command generated
+            Command string if available, None otherwise
+        """
+        pass
 
-        Note: This is a stateless call. Transformer should not store
-        per-entity state. All context comes from the Body.
+    @abstractmethod
+    async def write_output(self, entity: str, output: dict) -> None:
+        """
+        Write execution result to entity's output channel.
+
+        Args:
+            entity: Entity name
+            output: Result dict (implementation may add metadata)
         """
         pass

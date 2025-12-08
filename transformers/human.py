@@ -1,14 +1,13 @@
 """
-Human transformer - REFERENCE STUB.
+Human transformer - REFERENCE STUB for testing.
 
-This is a temporary implementation for testing. It does NOT follow the
-stateless transformer interface (think()) because human input requires
-a different model: humans submit commands when ready, not on demand.
+Implements the new transformer interface (list_entities, read_command, write_output)
+with a simple in-memory buffer. For testing only.
 
-TODO: Replace with proper human input handling in v0.2.
+Real human input should use FifoManager - humans write to FIFOs.
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, List
 from .base import Transformer
 
 
@@ -16,34 +15,47 @@ class HumanTransformer(Transformer):
     """
     REFERENCE STUB - for testing only.
 
-    Does not implement the stateless think() interface properly.
-    Humans submit input asynchronously via submit(), not on-demand.
+    In-memory buffer that implements the transformer interface.
+    Use submit() to queue a command, read_command() to retrieve it.
 
-    Will be replaced with proper human input handling.
+    Real human input should use FifoManager.
     """
 
     def __init__(self):
-        self.pending_input = None  # (entity, command) buffer
+        self._pending = {}  # entity -> command
+        self._outputs = {}  # entity -> list of outputs
 
-    async def think(self, entity: str, context: Dict[str, Any]) -> Optional[str]:
-        """
-        STUB: Returns pending input if entity matches, else None.
+    def list_entities(self) -> List[str]:
+        """Return entities with pending commands."""
+        return list(self._pending.keys())
 
-        This is not how human input should work - it's just for testing.
-        Real human input needs an async queue per entity.
+    async def read_command(self, entity: str) -> Optional[str]:
         """
-        if self.pending_input and self.pending_input[0] == entity:
-            _, command = self.pending_input
-            self.pending_input = None
-            return command
-        return None
+        Return pending command for entity, clearing it.
+
+        Returns:
+            Command string if pending, None otherwise
+        """
+        return self._pending.pop(entity, None)
+
+    async def write_output(self, entity: str, output: dict) -> None:
+        """Store output (for testing verification)."""
+        if entity not in self._outputs:
+            self._outputs[entity] = []
+        self._outputs[entity].append(output)
+
+    # Test helpers
 
     def submit(self, entity: str, command: str):
         """
-        Submit command for testing.
+        Submit command for entity (testing helper).
 
         Args:
-            entity: Entity submitting command
+            entity: Entity name
             command: Command string
         """
-        self.pending_input = (entity, command)
+        self._pending[entity] = command
+
+    def get_outputs(self, entity: str) -> List[dict]:
+        """Get stored outputs for entity (testing helper)."""
+        return self._outputs.get(entity, [])
