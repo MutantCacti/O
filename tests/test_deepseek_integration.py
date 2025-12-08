@@ -14,10 +14,11 @@ from body import Body
 def test_body_polls_deepseek_executes_command(tmp_path):
     """Full integration: Body.tick() → DeepSeek.poll() → Mind.execute() → State.log()."""
 
-    # Setup Mind with interactors
+    # Setup Mind with interactors (use tmp_path for isolation)
+    stdout = StdoutInteractor(memory_root=str(tmp_path / "stdout"))
     mind = Mind({
         "echo": EchoInteractor(),
-        "stdout": StdoutInteractor()
+        "stdout": stdout
     })
 
     # Setup State with temp log directory
@@ -68,7 +69,8 @@ def test_body_polls_deepseek_executes_command(tmp_path):
 def test_deepseek_throttles_across_ticks(tmp_path):
     """DeepSeek only responds once per tick, but responds again next tick."""
 
-    mind = Mind({"stdout": StdoutInteractor()})
+    stdout = StdoutInteractor(memory_root=str(tmp_path / "stdout"))
+    mind = Mind({"stdout": stdout})
     state = SystemState(tick=0, executions=[])
 
     with patch('transformers.deepseek.OpenAI') as mock_openai_class:
@@ -174,10 +176,11 @@ def test_deepseek_with_multiple_transformers():
         log_file.unlink()
 
 
-def test_deepseek_fallback_on_invalid_response():
+def test_deepseek_fallback_on_invalid_response(tmp_path):
     """When DeepSeek returns invalid response, fallback command is logged."""
 
-    mind = Mind({"stdout": StdoutInteractor()})
+    stdout = StdoutInteractor(memory_root=str(tmp_path / "stdout"))
+    mind = Mind({"stdout": stdout})
     state = SystemState(tick=0, executions=[])
 
     with patch('transformers.deepseek.OpenAI') as mock_openai_class:
