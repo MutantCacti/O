@@ -78,13 +78,27 @@ class SayInteractor(Interactor):
         destinations = []
 
         # Entity-addressed space (executor + targets)
-        # NOTE: Does not register in body.spaces - file-only for now.
-        #       Named spaces use body.spaces, entity-addressed don't.
-        #       Revisit when building \hear/reading mechanism.
+        # Auto-create space if it doesn't exist
         if entity_targets:
             members = sorted(set([executor] + entity_targets))
             space_id = "-".join(members)
             destinations.append(space_id)
+
+            # Create space if needed
+            if self.body:
+                if hasattr(self.body, 'spaces') and space_id not in self.body.spaces:
+                    from body import Space as SpaceData
+                    self.body.spaces[space_id] = SpaceData(
+                        name=space_id,
+                        members=set(members)
+                    )
+
+                # Register in entity_spaces for all members
+                if hasattr(self.body, 'entity_spaces'):
+                    for member in members:
+                        if member not in self.body.entity_spaces:
+                            self.body.entity_spaces[member] = set()
+                        self.body.entity_spaces[member].add(space_id)
 
         # Named spaces (must be member)
         for space_name in space_targets:
@@ -95,6 +109,12 @@ class SayInteractor(Interactor):
                 if executor not in self.body.spaces[space_name].members:
                     return f"ERROR: Not a member of {space_name}"
             destinations.append(space_name)
+
+            # Register in entity_spaces for executor (so incoming/read can find it)
+            if self.body and hasattr(self.body, 'entity_spaces'):
+                if executor not in self.body.entity_spaces:
+                    self.body.entity_spaces[executor] = set()
+                self.body.entity_spaces[executor].add(space_name)
 
         # Write to all destination spaces
         for dest in destinations:

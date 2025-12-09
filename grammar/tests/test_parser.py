@@ -16,6 +16,7 @@ sys.path.insert(0, str(grammar_dir))
 from parser import (
     parse, Parser, Command, Text, Entity, Space,
     Condition, SchedulerQuery, ParserError,
+    BoolOr, BoolAnd, BoolNot,
     MAX_COMMAND_LENGTH, MAX_NESTING_DEPTH
 )
 
@@ -185,46 +186,96 @@ class TestMultiEntitySpace:
 # ============================================================
 
 class TestConditionParsing:
-    """Test ?(expression) parsing"""
+    """Test ?(expression) parsing with boolean operators"""
 
-    def test_simple_condition(self):
-        """Test simple condition"""
-        result = parse(r"\wake ?(t > 100) ---")
+    def test_simple_condition_literal(self):
+        """Test simple literal condition"""
+        result = parse(r"\wake ?(true) ---")
         conditions = [n for n in result.content if isinstance(n, Condition)]
         assert len(conditions) == 1
-
-    def test_condition_with_entity(self):
-        """Test condition containing entity reference"""
-        result = parse(r"\wake ?(response(@alice)) ---")
-        conditions = [n for n in result.content if isinstance(n, Condition)]
-        assert len(conditions) == 1
-        # Check entity is inside condition
-        entities_in_cond = [n for n in conditions[0].expression if isinstance(n, Entity)]
-        assert len(entities_in_cond) == 1
-        assert entities_in_cond[0].name == "alice"
-
-    def test_condition_with_boolean_logic(self):
-        """Test condition with boolean operators"""
-        result = parse(r"\wake ?(response(@alice) or sleep(30)) ---")
-        conditions = [n for n in result.content if isinstance(n, Condition)]
-        assert len(conditions) == 1
-        # Should have entity and text nodes
-        assert len(conditions[0].expression) > 1
-
-    def test_nested_parentheses_in_condition(self):
-        """Test condition with nested parentheses"""
-        result = parse(r"\check ?(count(#space) > (10 + 5)) ---")
-        conditions = [n for n in result.content if isinstance(n, Condition)]
-        assert len(conditions) == 1
+        assert isinstance(conditions[0].expression, Text)
+        assert conditions[0].expression.text == "true"
 
     def test_condition_with_scheduler_query(self):
-        """Test scheduler query inside condition"""
-        result = parse(r"\wake ?($(\N---) > 10) ---")
+        """Test condition with scheduler query"""
+        result = parse(r"\wake ?($(\incoming---)) ---")
         conditions = [n for n in result.content if isinstance(n, Condition)]
         assert len(conditions) == 1
-        # Check query is inside condition
-        queries_in_cond = [n for n in conditions[0].expression if isinstance(n, SchedulerQuery)]
-        assert len(queries_in_cond) == 1
+        assert isinstance(conditions[0].expression, SchedulerQuery)
+
+    def test_condition_with_or(self):
+        """Test condition with OR operator"""
+        result = parse(r"\wake ?($(\incoming---) or $(\up---)) ---")
+        conditions = [n for n in result.content if isinstance(n, Condition)]
+        assert len(conditions) == 1
+        expr = conditions[0].expression
+        assert isinstance(expr, BoolOr)
+        assert isinstance(expr.left, SchedulerQuery)
+        assert isinstance(expr.right, SchedulerQuery)
+
+    def test_condition_with_and(self):
+        """Test condition with AND operator"""
+        result = parse(r"\wake ?($(\incoming---) and $(\up---)) ---")
+        conditions = [n for n in result.content if isinstance(n, Condition)]
+        assert len(conditions) == 1
+        expr = conditions[0].expression
+        assert isinstance(expr, BoolAnd)
+        assert isinstance(expr.left, SchedulerQuery)
+        assert isinstance(expr.right, SchedulerQuery)
+
+    def test_condition_with_not(self):
+        """Test condition with NOT operator"""
+        result = parse(r"\wake ?(not $(\busy---)) ---")
+        conditions = [n for n in result.content if isinstance(n, Condition)]
+        assert len(conditions) == 1
+        expr = conditions[0].expression
+        assert isinstance(expr, BoolNot)
+        assert isinstance(expr.operand, SchedulerQuery)
+
+    def test_condition_precedence_and_before_or(self):
+        """Test that AND binds tighter than OR"""
+        # a or b and c should parse as a or (b and c)
+        result = parse(r"\wake ?($(\a---) or $(\b---) and $(\c---)) ---")
+        conditions = [n for n in result.content if isinstance(n, Condition)]
+        expr = conditions[0].expression
+        assert isinstance(expr, BoolOr)
+        assert isinstance(expr.left, SchedulerQuery)  # a
+        assert isinstance(expr.right, BoolAnd)  # b and c
+
+    def test_condition_grouping_with_parens(self):
+        """Test grouping with parentheses"""
+        # (a or b) and c
+        result = parse(r"\wake ?(($(\a---) or $(\b---)) and $(\c---)) ---")
+        conditions = [n for n in result.content if isinstance(n, Condition)]
+        expr = conditions[0].expression
+        assert isinstance(expr, BoolAnd)
+        assert isinstance(expr.left, BoolOr)  # (a or b)
+        assert isinstance(expr.right, SchedulerQuery)  # c
+
+    def test_condition_with_entity_literal(self):
+        """Test condition with entity reference as literal"""
+        result = parse(r"\wake ?(@alice) ---")
+        conditions = [n for n in result.content if isinstance(n, Condition)]
+        assert len(conditions) == 1
+        assert isinstance(conditions[0].expression, Entity)
+        assert conditions[0].expression.name == "alice"
+
+    def test_condition_with_space_literal(self):
+        """Test condition with space reference as literal"""
+        result = parse(r"\wake ?(#general) ---")
+        conditions = [n for n in result.content if isinstance(n, Condition)]
+        assert len(conditions) == 1
+        assert isinstance(conditions[0].expression, Space)
+        assert conditions[0].expression.name == "general"
+
+    def test_complex_nested_condition(self):
+        """Test complex nested boolean expression"""
+        result = parse(r"\wake ?(($(\a---) or $(\b---)) and (not $(\c---))) ---")
+        conditions = [n for n in result.content if isinstance(n, Condition)]
+        expr = conditions[0].expression
+        assert isinstance(expr, BoolAnd)
+        assert isinstance(expr.left, BoolOr)
+        assert isinstance(expr.right, BoolNot)
 
 
 # ============================================================
@@ -293,13 +344,15 @@ class TestComplexCombinations:
         assert len(spaces) == 2
 
     def test_condition_with_complex_expression(self):
-        """Test condition with multiple elements"""
-        result = parse(r"\wake ?(response(@alice) or (response(@bob) and sleep(30))) ---")
+        """Test condition with complex boolean expression"""
+        result = parse(r"\wake ?($(\response @alice---) or ($(\response @bob---) and $(\sleep 30---))) ---")
         conditions = [n for n in result.content if isinstance(n, Condition)]
         assert len(conditions) == 1
-        # Should have multiple entities inside
-        entities_in_cond = [n for n in conditions[0].expression if isinstance(n, Entity)]
-        assert len(entities_in_cond) == 2
+        # Top level should be BoolOr
+        expr = conditions[0].expression
+        assert isinstance(expr, BoolOr)
+        # Right side should be BoolAnd (due to parens)
+        assert isinstance(expr.right, BoolAnd)
 
 
 # ============================================================
@@ -495,8 +548,8 @@ class TestIntegration:
         assert len(entities) == 2
 
     def test_wake_condition(self):
-        """Test wake with condition"""
-        result = parse(r"\wake ?(response(@alice) or sleep(30)) ---")
+        """Test wake with condition using valid syntax"""
+        result = parse(r"\wake ?($(\incoming---) or true) ---")
         conditions = [n for n in result.content if isinstance(n, Condition)]
         assert len(conditions) == 1
 

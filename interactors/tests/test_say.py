@@ -124,6 +124,8 @@ def test_say_with_body_gets_tick(say, tmp_spaces):
 
     mock_body = Mock()
     mock_body.state.tick = 42
+    mock_body.spaces = {}
+    mock_body.entity_spaces = {}
     say.body = mock_body
 
     cmd = parse(r"\say @bob Hello! ---")
@@ -151,6 +153,7 @@ def test_say_to_named_space(tmp_spaces):
     mock_body.spaces = {
         "#general": SpaceData(name="#general", members={"@alice", "@bob", "@charlie"})
     }
+    mock_body.entity_spaces = {}
     say.body = mock_body
 
     cmd = parse(r"\say #general Hello everyone! ---")
@@ -166,6 +169,9 @@ def test_say_to_named_space(tmp_spaces):
 
     assert entry["sender"] == "@alice"
     assert entry["content"] == "Hello everyone!"
+
+    # Verify entity_spaces was updated
+    assert "#general" in mock_body.entity_spaces.get("@alice", set())
 
 
 def test_say_to_named_space_requires_membership(tmp_spaces):
@@ -220,6 +226,7 @@ def test_say_to_multiple_spaces(tmp_spaces):
         "#general": SpaceData(name="#general", members={"@alice", "@bob"}),
         "#dev": SpaceData(name="#dev", members={"@alice", "@charlie"})
     }
+    mock_body.entity_spaces = {}
     say.body = mock_body
 
     cmd = parse(r"\say #general #dev Broadcast! ---")
@@ -231,6 +238,10 @@ def test_say_to_multiple_spaces(tmp_spaces):
     # Both files created
     assert (tmp_spaces / "#general.jsonl").exists()
     assert (tmp_spaces / "#dev.jsonl").exists()
+
+    # Verify entity_spaces was updated for both
+    assert "#general" in mock_body.entity_spaces.get("@alice", set())
+    assert "#dev" in mock_body.entity_spaces.get("@alice", set())
 
 
 def test_say_mixed_entity_and_space(tmp_spaces):
@@ -245,6 +256,7 @@ def test_say_mixed_entity_and_space(tmp_spaces):
     mock_body.spaces = {
         "#general": SpaceData(name="#general", members={"@alice", "@bob"})
     }
+    mock_body.entity_spaces = {}
     say.body = mock_body
 
     cmd = parse(r"\say @charlie #general Hello both places! ---")

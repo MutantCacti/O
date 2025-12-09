@@ -48,6 +48,11 @@ class Mind:
 
             # Execute (pass executor context)
             interactor = self.interactors[cmd.name]
+
+            # Prefer execute_async if available (for async interactors like eval)
+            if hasattr(interactor, 'execute_async'):
+                return await interactor.execute_async(cmd, executor=executor)
+
             result = interactor.execute(cmd, executor=executor)
 
             # Support both sync and async interactors

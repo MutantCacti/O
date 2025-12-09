@@ -23,6 +23,9 @@ from interactors.say import SayInteractor
 from interactors.name import NameInteractor
 from interactors.wake import WakeInteractor
 from interactors.spawn import SpawnInteractor
+from interactors.up import UpInteractor
+from interactors.incoming import IncomingInteractor
+from interactors.listen import ListenInteractor
 from transformers.fifo import FifoManager
 
 
@@ -61,13 +64,26 @@ class App:
     def _build_interactors(self) -> dict:
         """Build interactor registry with body reference."""
         # Create interactors (body reference added after Body creation)
+        # Create listen first since wake depends on it
+        listen = ListenInteractor(memory_root=str(self.memory_dir / "listen"))
+
         return {
             "echo": EchoInteractor(),
             "stdout": StdoutInteractor(memory_root=str(self.memory_dir / "stdout")),
             "say": SayInteractor(spaces_root=str(self.memory_dir / "spaces")),
             "name": NameInteractor(),
-            "wake": WakeInteractor(),
+            "wake": WakeInteractor(
+                memory_root=str(self.memory_dir / "wake"),
+                listen=listen,
+                spaces_root=str(self.memory_dir / "spaces")
+            ),
             "spawn": SpawnInteractor(),
+            "up": UpInteractor(),
+            "incoming": IncomingInteractor(
+                spaces_root=str(self.memory_dir / "spaces"),
+                state_root=str(self.memory_dir / "incoming")
+            ),
+            "listen": listen,
         }
 
     def _build_transformer(self):
@@ -109,10 +125,12 @@ class App:
                 tick_interval=self.tick_interval
             )
 
-            # Wire body reference to interactors that need it
+            # Wire body and mind references to interactors that need them
             for interactor in interactors.values():
                 if hasattr(interactor, 'body'):
                     interactor.body = self.body
+                if hasattr(interactor, 'mind'):
+                    interactor.mind = mind
 
             # Bootstrap @root entity
             self.body.entity_spaces["@root"] = set()
