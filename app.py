@@ -22,7 +22,8 @@ from interactors.stdout import StdoutInteractor
 from interactors.say import SayInteractor
 from interactors.name import NameInteractor
 from interactors.wake import WakeInteractor
-from transformers.human import HumanTransformer
+from interactors.spawn import SpawnInteractor
+from transformers.fifo import FifoManager
 
 
 class App:
@@ -66,11 +67,12 @@ class App:
             "say": SayInteractor(spaces_root=str(self.memory_dir / "spaces")),
             "name": NameInteractor(),
             "wake": WakeInteractor(),
+            "spawn": SpawnInteractor(),
         }
 
     def _build_transformer(self):
-        """Build transformer service (stub for testing)."""
-        return HumanTransformer()
+        """Build FIFO transformer for I/O."""
+        return FifoManager()
 
     async def start(self, max_ticks: Optional[int] = None):
         """
@@ -111,6 +113,11 @@ class App:
             for interactor in interactors.values():
                 if hasattr(interactor, 'body'):
                     interactor.body = self.body
+
+            # Bootstrap @root entity
+            self.body.entity_spaces["@root"] = set()
+            transformer.ensure_entity_fifos("@root")
+            print("Spawned @root")
 
         except Exception as e:
             print(f"ERROR: Failed to initialize components: {e}", file=sys.stderr)
@@ -208,7 +215,6 @@ def main():
         default=None,
         help="Memory directory (default: ./memory)"
     )
-
     args = parser.parse_args()
 
     app = App(

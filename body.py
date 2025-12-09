@@ -177,14 +177,9 @@ class Body:
         Errors in individual entity execution don't stop the tick.
         """
         # Poll all entities for commands via transformer
+        # Entity registry is body.entity_spaces, not transformer
         if self.transformer:
-            try:
-                entities = self.transformer.list_entities()
-            except Exception:
-                # Transformer error - skip this tick's polling
-                entities = []
-
-            for entity in entities:
+            for entity in list(self.entity_spaces.keys()):
                 try:
                     command = await self.transformer.read_command(entity)
 

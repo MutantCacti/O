@@ -29,7 +29,7 @@ class FifoManager:
     # Maximum command size (bytes)
     MAX_COMMAND_SIZE = 65536  # 64KB
 
-    def __init__(self, fifo_root: str = "fifos"):
+    def __init__(self, fifo_root: str = "transformers/fifos"):
         """
         Initialize FIFO manager.
 
@@ -84,30 +84,6 @@ class FifoManager:
             os.mkfifo(input_path)
         if not output_path.exists():
             os.mkfifo(output_path)
-
-    def list_entities(self) -> List[str]:
-        """
-        List all entities with FIFOs.
-
-        Also cleans up stale file descriptors for removed entities.
-
-        Returns:
-            List of entity names
-        """
-        if not self.fifo_root.exists():
-            return []
-
-        entities = []
-        for path in self.fifo_root.iterdir():
-            if path.is_dir() and path.name.startswith("@"):
-                # Verify it has input FIFO
-                if (path / "input.fifo").exists():
-                    entities.append(path.name)
-
-        # Clean up FDs for entities that no longer exist
-        self._cleanup_stale_fds(entities)
-
-        return entities
 
     def _cleanup_stale_fds(self, active_entities: List[str]) -> None:
         """

@@ -7,7 +7,7 @@ import tempfile
 import shutil
 
 from app import App
-from transformers.human import HumanTransformer
+from transformers.fifo import FifoManager
 
 
 class TestAppInitialization:
@@ -171,7 +171,7 @@ class TestAppExecution:
 
         # Verify transformer is set
         assert app.body.transformer is not None
-        assert isinstance(app.body.transformer, HumanTransformer)
+        assert isinstance(app.body.transformer, FifoManager)
 
 
 class TestAppErrorHandling:

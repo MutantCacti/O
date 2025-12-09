@@ -3,9 +3,12 @@ Transformer base class - I/O substrate for O.
 
 Transformers are the interface between O and external programs (humans, LLMs,
 other O instances). They provide:
-- list_entities(): Which entities have I/O channels
 - read_command(): Non-blocking read from entity's input
 - write_output(): Write execution results to entity's output
+- ensure_entity_fifos(): Create I/O channels for an entity
+
+Entity registry lives in Body.entity_spaces, NOT in transformers.
+Transformers are purely I/O - they don't decide which entities exist.
 
 The fundamental implementation is FifoManager - per-entity named pipes.
 All other "transformers" are external programs that write to those FIFOs.
@@ -14,30 +17,21 @@ All transformers are async for safe concurrent I/O.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, List
+from typing import Optional
 
 
 class Transformer(ABC):
     """
     Abstract I/O substrate for entity commands.
 
-    Body polls transformers each tick to read commands from entities.
-    Commands are executed through Mind, results written back.
+    Body polls entities (from body.entity_spaces) each tick, using
+    transformers to read commands and write results.
 
-    The transformer doesn't decide WHAT entities do - it just moves
-    commands in and results out. Decision-making happens externally
-    (in LLM agents, human terminals, etc.) which write to the I/O channels.
+    The transformer doesn't decide WHICH entities exist or WHAT they do -
+    it just moves commands in and results out. Entity registry is Body's
+    responsibility. Decision-making happens externally (in LLM agents,
+    human terminals, etc.) which write to the I/O channels.
     """
-
-    @abstractmethod
-    def list_entities(self) -> List[str]:
-        """
-        List all entities with I/O channels.
-
-        Returns:
-            List of entity names (e.g., ["@alice", "@bob"])
-        """
-        pass
 
     @abstractmethod
     async def read_command(self, entity: str) -> Optional[str]:
@@ -62,3 +56,15 @@ class Transformer(ABC):
             output: Result dict (implementation may add metadata)
         """
         pass
+
+    def ensure_entity_fifos(self, entity: str) -> None:
+        """
+        Create I/O channels for an entity (optional).
+
+        Not all transformers need this - e.g., in-memory test transformers
+        don't have persistent channels to create.
+
+        Args:
+            entity: Entity name (e.g., "@alice")
+        """
+        pass  # Default: no-op

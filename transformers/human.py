@@ -1,10 +1,12 @@
 """
 Human transformer - REFERENCE STUB for testing.
 
-Implements the new transformer interface (list_entities, read_command, write_output)
+Implements the transformer interface (read_command, write_output)
 with a simple in-memory buffer. For testing only.
 
 Real human input should use FifoManager - humans write to FIFOs.
+
+Note: Entity registry lives in Body.entity_spaces, not here.
 """
 
 from typing import Optional, List
@@ -24,10 +26,6 @@ class HumanTransformer(Transformer):
     def __init__(self):
         self._pending = {}  # entity -> command
         self._outputs = {}  # entity -> list of outputs
-
-    def list_entities(self) -> List[str]:
-        """Return entities with pending commands."""
-        return list(self._pending.keys())
 
     async def read_command(self, entity: str) -> Optional[str]:
         """

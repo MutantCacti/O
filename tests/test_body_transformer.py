@@ -55,6 +55,9 @@ async def test_body_polls_transformer_for_commands():
     state = SystemState(tick=0, executions=[])
     body = Body(mind, state, transformer=human)
 
+    # Register entity in body.entity_spaces
+    body.entity_spaces["@alice"] = set()
+
     # Submit command for @alice
     human.submit("@alice", r"\echo Hello from Alice! ---")
 
@@ -76,6 +79,10 @@ async def test_body_executes_multiple_entities():
     mind = Mind({"echo": EchoInteractor()})
     state = SystemState(tick=0, executions=[])
     body = Body(mind, state, transformer=human)
+
+    # Register entities in body.entity_spaces
+    body.entity_spaces["@alice"] = set()
+    body.entity_spaces["@bob"] = set()
 
     # Submit commands for two entities
     human.submit("@alice", r"\echo Hello from Alice ---")
@@ -119,6 +126,9 @@ async def test_body_writes_output_with_tick():
     mind = Mind({"echo": EchoInteractor()})
     state = SystemState(tick=42, executions=[])
     body = Body(mind, state, transformer=human)
+
+    # Register entity in body.entity_spaces
+    body.entity_spaces["@alice"] = set()
 
     human.submit("@alice", r"\echo Test ---")
 

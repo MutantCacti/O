@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""
+o-send - Send a single command to an O entity.
+
+Usage:
+    ./o-send @alice '\\echo Hello ---'
+
+For scripts and Claude. Does not wait for response.
+Use o-shell for interactive use.
+"""
+
+import argparse
+import sys
+from pathlib import Path
+
+
+def send_command(entity: str, command: str, fifo_root: Path) -> int:
+    """Send command to entity's input FIFO."""
+    input_fifo = fifo_root / entity / "input.fifo"
+
+    if not input_fifo.exists():
+        print(f"ERROR: Input FIFO not found: {input_fifo}", file=sys.stderr)
+        print(f"Has the entity been spawned? Use: \\spawn {entity} ---", file=sys.stderr)
+        return 1
+
+    try:
+        with open(input_fifo, 'w') as f:
+            f.write(command + '\n')
+        return 0
+    except OSError as e:
+        print(f"ERROR: Failed to send: {e}", file=sys.stderr)
+        return 1
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Send a command to an O entity',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    ./o-send @alice '\\echo Hello ---'
+    ./o-send @bob '\\say @alice Hi! ---'
+        """
+    )
+    parser.add_argument('entity', help='Entity name (e.g., @alice)')
+    parser.add_argument('command', help='Command to send')
+    parser.add_argument(
+        '--fifo-root', '-f',
+        type=Path,
+        default=Path('transformers/fifos'),
+        help='FIFO root directory (default: ./transformers/fifos)'
+    )
+
+    args = parser.parse_args()
+
+    # Validate entity name
+    if not args.entity.startswith('@'):
+        print(f"ERROR: Entity name must start with @, got: {args.entity}", file=sys.stderr)
+        sys.exit(1)
+
+    sys.exit(send_command(args.entity, args.command, args.fifo_root))
+
+
+if __name__ == '__main__':
+    main()

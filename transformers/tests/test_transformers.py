@@ -19,20 +19,7 @@ class TestHumanTransformerStub:
         human = HumanTransformer()
         assert isinstance(human, Transformer)
 
-    def test_list_entities_empty_initially(self):
-        """list_entities() returns empty list when nothing submitted."""
-        human = HumanTransformer()
-        assert human.list_entities() == []
 
-    def test_list_entities_returns_submitted(self):
-        """list_entities() returns entities with pending commands."""
-        human = HumanTransformer()
-        human.submit("@alice", r"\echo Hello ---")
-        human.submit("@bob", r"\echo Hi ---")
-
-        entities = human.list_entities()
-        assert "@alice" in entities
-        assert "@bob" in entities
 
     @pytest.mark.asyncio
     async def test_read_command_returns_none_when_empty(self):
@@ -79,4 +66,4 @@ class TestHumanTransformerStub:
         human = HumanTransformer()
         human.submit("@bob", r"\stdout Test ---")
 
-        assert "@bob" in human.list_entities()
+        assert "@bob" in human._pending

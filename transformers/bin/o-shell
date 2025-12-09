@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""
+o-shell - Interactive CLI for O entities.
+
+Usage:
+    ./o-shell @alice
+
+Connects to an entity's FIFOs and provides an interactive shell:
+- Displays output from the entity as it arrives
+- Accepts commands to send to the entity
+"""
+
+import argparse
+import json
+import os
+import select
+import sys
+import threading
+from pathlib import Path
+
+
+class OShell:
+    """Interactive shell for an O entity."""
+
+    def __init__(self, entity: str, fifo_root: Path):
+        self.entity = entity
+        self.fifo_root = fifo_root
+        self.input_fifo = fifo_root / entity / "input.fifo"
+        self.output_fifo = fifo_root / entity / "output.fifo"
+        self._running = False
+        self._output_fd = None
+
+    def check_fifos(self) -> bool:
+        """Check that entity FIFOs exist."""
+        if not self.input_fifo.exists():
+            print(f"ERROR: Input FIFO not found: {self.input_fifo}")
+            print(f"Has the entity been spawned? Use: \\spawn {self.entity} ---")
+            return False
+        if not self.output_fifo.exists():
+            print(f"ERROR: Output FIFO not found: {self.output_fifo}")
+            return False
+        return True
+
+    def read_output_loop(self):
+        """Background thread: read from output FIFO and display."""
+        try:
+            self._output_fd = os.open(str(self.output_fifo), os.O_RDONLY | os.O_NONBLOCK)
+        except OSError as e:
+            print(f"Warning: Could not open output FIFO: {e}")
+            return
+
+        buffer = b""
+        while self._running:
+            try:
+                readable, _, _ = select.select([self._output_fd], [], [], 0.1)
+                if readable:
+                    data = os.read(self._output_fd, 4096)
+                    if data:
+                        buffer += data
+                        while b'\n' in buffer:
+                            line, buffer = buffer.split(b'\n', 1)
+                            self.display_output(line.decode('utf-8'))
+                    else:
+                        # EOF - reopen
+                        os.close(self._output_fd)
+                        try:
+                            self._output_fd = os.open(str(self.output_fifo), os.O_RDONLY | os.O_NONBLOCK)
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+
+        if self._output_fd:
+            try:
+                os.close(self._output_fd)
+            except OSError:
+                pass
+
+    def display_output(self, line: str):
+        """Display a line of output from the entity."""
+        try:
+            data = json.loads(line)
+            tick = data.get('tick', '?')
+            output = data.get('output', line)
+            cmd = data.get('command', '')
+
+            # Clear current input line, print output, restore prompt
+            sys.stdout.write('\r\033[K')  # Clear line
+            print(f"[tick {tick}] {output}")
+            sys.stdout.write(f"{self.entity}> ")
+            sys.stdout.flush()
+        except json.JSONDecodeError:
+            sys.stdout.write('\r\033[K')
+            print(f"< {line}")
+            sys.stdout.write(f"{self.entity}> ")
+            sys.stdout.flush()
+
+    def send_command(self, command: str):
+        """Send a command to the entity's input FIFO."""
+        try:
+            # Open non-blocking, write, close
+            fd = os.open(str(self.input_fifo), os.O_WRONLY | os.O_NONBLOCK)
+            try:
+                os.write(fd, (command + '\n').encode('utf-8'))
+            finally:
+                os.close(fd)
+        except BlockingIOError:
+            print("ERROR: FIFO not ready (no reader)")
+        except OSError as e:
+            print(f"ERROR: Failed to send command: {e}")
+
+    def input_loop(self):
+        """Main loop: read user input and send commands."""
+        print(f"Connected to {self.entity}")
+        print(f"Type commands and press Enter. Ctrl+C to exit.\n")
+
+        while self._running:
+            try:
+                command = input(f"{self.entity}> ").strip()
+                if command:
+                    self.send_command(command)
+            except EOFError:
+                break
+            except KeyboardInterrupt:
+                break
+
+    def run(self):
+        """Run the interactive shell."""
+        if not self.check_fifos():
+            return 1
+
+        self._running = True
+
+        # Start output reader in background THREAD
+        output_thread = threading.Thread(target=self.read_output_loop, daemon=True)
+        output_thread.start()
+
+        try:
+            self.input_loop()
+        except KeyboardInterrupt:
+            print("\nExiting...")
+        finally:
+            self._running = False
+            output_thread.join(timeout=1.0)
+
+        return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Interactive shell for O entities',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    ./o-shell @alice           Connect to @alice
+    ./o-shell @bob --fifo-root /tmp/fifos
+        """
+    )
+    parser.add_argument('entity', help='Entity name (e.g., @alice)')
+    parser.add_argument(
+        '--fifo-root', '-f',
+        type=Path,
+        default=Path('transformers/fifos'),
+        help='FIFO root directory (default: ./transformers/fifos)'
+    )
+
+    args = parser.parse_args()
+
+    # Validate entity name
+    if not args.entity.startswith('@'):
+        print(f"ERROR: Entity name must start with @, got: {args.entity}")
+        sys.exit(1)
+
+    shell = OShell(args.entity, args.fifo_root)
+    sys.exit(shell.run())
+
+
+if __name__ == '__main__':
+    main()

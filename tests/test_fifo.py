@@ -32,10 +32,6 @@ class TestFifoManagerBasics:
         fm = FifoManager(fifo_root=str(fifo_dir))
         assert fm.fifo_root == fifo_dir
 
-    def test_list_entities_empty(self, fifo_dir):
-        """list_entities() returns empty list when no entities."""
-        fm = FifoManager(fifo_root=str(fifo_dir))
-        assert fm.list_entities() == []
 
     def test_ensure_entity_fifos_creates_directory(self, fifo_dir):
         """ensure_entity_fifos() creates entity directory."""
@@ -64,28 +60,7 @@ class TestFifoManagerBasics:
         assert output_fifo.exists()
         assert stat_is_fifo(output_fifo)
 
-    def test_list_entities_returns_created(self, fifo_dir):
-        """list_entities() returns entities after creation."""
-        fm = FifoManager(fifo_root=str(fifo_dir))
-        fm.ensure_entity_fifos("@alice")
-        fm.ensure_entity_fifos("@bob")
 
-        entities = fm.list_entities()
-        assert "@alice" in entities
-        assert "@bob" in entities
-
-    def test_list_entities_ignores_non_entity_dirs(self, fifo_dir):
-        """list_entities() ignores directories without @ prefix."""
-        fm = FifoManager(fifo_root=str(fifo_dir))
-
-        # Create non-entity directory
-        (fifo_dir / "config").mkdir()
-        (fifo_dir / "logs").mkdir()
-
-        fm.ensure_entity_fifos("@alice")
-
-        entities = fm.list_entities()
-        assert entities == ["@alice"]
 
 
 class TestFifoManagerValidation:
@@ -169,7 +144,7 @@ class TestFifoManagerReadWrite:
         assert len(fm._input_fds) == 0
 
     def test_cleanup_stale_fds(self, fifo_dir):
-        """list_entities() cleans up FDs for removed entities."""
+        """_cleanup_stale_fds() cleans up FDs for removed entities."""
         fm = FifoManager(fifo_root=str(fifo_dir))
         fm.ensure_entity_fifos("@alice")
         fm.ensure_entity_fifos("@bob")
@@ -184,14 +159,11 @@ class TestFifoManagerReadWrite:
             os.O_RDONLY | os.O_NONBLOCK
         )
 
-        # Remove @bob's directory
-        import shutil
-        shutil.rmtree(fifo_dir / "@bob")
-
-        # list_entities() should clean up @bob's FD
-        entities = fm.list_entities()
-        assert "@alice" in entities
-        assert "@bob" not in entities
+        # Call _cleanup_stale_fds with only @alice as active
+        # This should clean up @bob's FD
+        fm._cleanup_stale_fds(["@alice"])
+        
+        assert "@alice" in fm._input_fds
         assert "@bob" not in fm._input_fds
 
         fm.close()
