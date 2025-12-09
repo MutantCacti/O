@@ -117,6 +117,9 @@ class Body:
         self.sleep_queue: Dict[str, WakeRecord] = {}
         # Example: {@bob: WakeRecord(condition=..., self_prompt="...")}
 
+        # Run state
+        self._running = False
+
     # ===== Temporal Coordination =====
 
     def _check_wake_conditions(self) -> List[WakeRecord]:
@@ -231,7 +234,12 @@ class Body:
             if max_ticks and ticks >= max_ticks:
                 break
 
-            await asyncio.sleep(self.tick_interval)
+            # Use short sleeps so we can respond to stop() quickly
+            sleep_remaining = self.tick_interval
+            while sleep_remaining > 0 and self._running:
+                sleep_chunk = min(0.1, sleep_remaining)
+                await asyncio.sleep(sleep_chunk)
+                sleep_remaining -= sleep_chunk
 
     def stop(self):
         """Signal the run loop to stop and cleanup resources."""

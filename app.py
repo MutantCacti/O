@@ -26,6 +26,9 @@ from interactors.spawn import SpawnInteractor
 from interactors.up import UpInteractor
 from interactors.incoming import IncomingInteractor
 from interactors.listen import ListenInteractor
+from interactors.read import ReadInteractor
+from interactors.publish import PublishInteractor
+from interactors.eval import EvalInteractor
 from transformers.fifo import FifoManager
 
 
@@ -84,6 +87,9 @@ class App:
                 state_root=str(self.memory_dir / "incoming")
             ),
             "listen": listen,
+            "read": ReadInteractor(spaces_root=str(self.memory_dir / "spaces")),
+            "publish": PublishInteractor(output_root="output"),
+            "eval": EvalInteractor(),
         }
 
     def _build_transformer(self):

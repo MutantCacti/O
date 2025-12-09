@@ -454,15 +454,21 @@ class ConditionParser:
                 return Entity(name)
             raise ParserError("Empty entity name after @", position=self.pos)
 
-        # Check for #space
+        # Check for #space - only if followed by alphanumeric, _, or (
         if self.peek() == '#':
-            self.consume()
-            name = ''
-            while self.pos < self.length and (self.text[self.pos].isalnum() or self.text[self.pos] in '-_'):
-                name += self.consume()
-            if name:
-                return Space(name)
-            raise ParserError("Empty space name after #", position=self.pos)
+            # Look ahead to see if this is a space reference
+            next_pos = self.pos + 1
+            if next_pos < self.length:
+                next_char = self.text[next_pos]
+                if next_char.isalnum() or next_char == '_' or next_char == '(':
+                    self.consume()  # consume #
+                    name = ''
+                    while self.pos < self.length and (self.text[self.pos].isalnum() or self.text[self.pos] in '-_'):
+                        name += self.consume()
+                    if name:
+                        return Space(name)
+                    raise ParserError("Empty space name after #", position=self.pos)
+            # Otherwise treat # as text (e.g., markdown headers ##)
 
         # Otherwise collect text until we hit an operator, paren, or special char
         text = ''
@@ -623,8 +629,18 @@ class Parser:
                 # parse_entity returns list - extend to unpack multiple entities
                 nodes.extend(self.parse_entity())
             elif char == '#':
-                # parse_space returns list - extend to unpack multiple spaces
-                nodes.extend(self.parse_space())
+                # Only parse as space if followed by alphanumeric, _, or (
+                # Otherwise parse_text will handle it as regular text
+                next_pos = self.pos + 1
+                if next_pos < self.length:
+                    next_char = self.text[next_pos]
+                    if next_char.isalnum() or next_char == '_' or next_char == '(':
+                        nodes.extend(self.parse_space())
+                    else:
+                        # Let parse_text handle non-space # (e.g., markdown ##)
+                        nodes.append(self.parse_text())
+                else:
+                    nodes.append(self.parse_text())
             elif char == '\\':
                 # Backslash inside command content is reserved for nested commands
                 # For now, it's not allowed in text (would need escape sequences)
@@ -823,9 +839,21 @@ class Parser:
         while self.pos < self.length:
             char = self.peek()
 
-            # Stop at special characters (not ? or $ - those are contextual)
-            if char in '@#\\':
+            # Stop at @ and \ always
+            if char in '@\\':
                 break
+
+            # Stop at # only if it's a valid space marker (followed by alnum, _, or ()
+            if char == '#':
+                next_pos = self.pos + 1
+                if next_pos < self.length:
+                    next_char = self.text[next_pos]
+                    if next_char.isalnum() or next_char == '_' or next_char == '(':
+                        break
+                    # Otherwise consume # as regular text (e.g., markdown ##)
+                else:
+                    # # at end of input - consume as text
+                    pass
 
             # Stop at potential terminators
             if self.peek(3) == '---':

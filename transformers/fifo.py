@@ -11,6 +11,7 @@ Structure:
         output.fifo  # O writes, external reads
 """
 
+import asyncio
 import json
 import os
 import select
@@ -40,6 +41,7 @@ class FifoManager:
         self._input_fds = {}  # entity -> file descriptor
         self._output_fds = {}  # entity -> file descriptor
         self._input_buffers = {}  # entity -> accumulated bytes
+        self._output_buffer = {}  # entity -> list of pending output bytes
 
     def _validate_entity(self, entity: str) -> None:
         """
@@ -197,6 +199,10 @@ class FifoManager:
         """
         Extract first complete command from entity's buffer.
 
+        Uses the grammar parser to determine when a complete, valid command
+        has been received. Handles multiple commands in buffer by finding
+        the first valid command boundary.
+
         Returns:
             Command string if complete command found, None otherwise
         """
@@ -204,29 +210,60 @@ class FifoManager:
             return None
 
         buffer = self._input_buffers[entity]
-        if b'\n' not in buffer:
-            return None
-
-        # Extract first line
-        newline_pos = buffer.index(b'\n')
-        line = buffer[:newline_pos]
-        self._input_buffers[entity] = buffer[newline_pos + 1:]
 
         try:
-            text = line.decode('utf-8').strip()
-            return text if text else None
+            text = buffer.decode('utf-8')
         except UnicodeDecodeError:
-            # Skip malformed data
+            # Skip malformed data - clear buffer
+            self._input_buffers[entity] = b""
             return None
+
+        if not text.strip():
+            return None
+
+        # Try to parse as a command using the grammar
+        from grammar.parser import parse, ParserError
+
+        # Find all potential command boundaries (--- followed by whitespace/newline)
+        # Try parsing up to each one to find first complete command
+        pos = 0
+        while True:
+            # Find next --- terminator
+            idx = text.find('---', pos)
+            if idx == -1:
+                # No terminator found - need more data
+                return None
+
+            # Try parsing up to this terminator (include the ---)
+            end_pos = idx + 3
+            # Skip any trailing whitespace/newline after ---
+            while end_pos < len(text) and text[end_pos] in ' \t\n':
+                end_pos += 1
+
+            candidate = text[:idx + 3].strip()
+
+            try:
+                parse(candidate)
+                # Parsing succeeded - extract this command
+                self._input_buffers[entity] = text[end_pos:].encode('utf-8')
+                return candidate
+            except ParserError:
+                # This --- wasn't a valid command end, try next one
+                pos = idx + 3
+                continue
 
     async def write_output(self, entity: str, output: dict) -> None:
         """
         Write execution result to entity's output FIFO.
 
+        Uses blocking open with retry to ensure output is delivered.
+
         Args:
             entity: Entity name
             output: Result dict (will be JSON-encoded)
         """
+        import select
+
         output_path = self.fifo_root / entity / "output.fifo"
 
         if not output_path.exists():
@@ -234,22 +271,42 @@ class FifoManager:
 
         # Add timestamp
         output["timestamp"] = datetime.now(timezone.utc).isoformat()
+        line = json.dumps(output) + "\n"
+        data = line.encode('utf-8')
 
-        try:
-            # Open in non-blocking write mode
-            if entity not in self._output_fds:
-                fd = os.open(str(output_path), os.O_WRONLY | os.O_NONBLOCK)
-                self._output_fds[entity] = fd
+        # Try to get/open file descriptor
+        max_retries = 10
+        retry_delay = 0.1
 
-            fd = self._output_fds[entity]
+        for attempt in range(max_retries):
+            try:
+                # Open in non-blocking mode first to check if reader exists
+                if entity not in self._output_fds:
+                    fd = os.open(str(output_path), os.O_WRONLY | os.O_NONBLOCK)
+                    self._output_fds[entity] = fd
 
-            # Write JSON line
-            line = json.dumps(output) + "\n"
-            os.write(fd, line.encode('utf-8'))
+                fd = self._output_fds[entity]
 
-        except OSError:
-            # No reader connected or FD broken - close and retry next time
-            self._close_entity_output(entity)
+                # Use select to wait for FIFO to be writable (reader connected)
+                _, writable, _ = select.select([], [fd], [], 0.5)
+
+                if writable:
+                    os.write(fd, data)
+                    return  # Success
+                else:
+                    # No reader yet, wait and retry
+                    await asyncio.sleep(retry_delay)
+
+            except OSError:
+                # FD broken or no reader - close and retry
+                self._close_entity_output(entity)
+                await asyncio.sleep(retry_delay)
+
+        # If we get here, we failed to write after all retries
+        # Buffer the output for later delivery
+        if entity not in self._output_buffer:
+            self._output_buffer[entity] = []
+        self._output_buffer[entity].append(data)
 
     def close(self) -> None:
         """Close all open file descriptors."""

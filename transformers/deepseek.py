@@ -24,6 +24,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+# Load .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 try:
     from openai import AsyncOpenAI
 except ImportError:
@@ -269,10 +276,24 @@ You are autonomous. Solve problems step by step. Write your reasoning to scratch
                 temperature=0.7,
             )
 
-            command = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
 
-            # Record assistant response
-            self.history.append({"role": "assistant", "content": command})
+            # Extract command - find first backslash command in response
+            # LLMs often include explanatory text before the actual command
+            command = raw_response
+            if '\\' in raw_response:
+                # Find the first backslash that starts a command
+                idx = raw_response.find('\\')
+                if idx > 0:
+                    # There's text before the command - extract just the command
+                    command = raw_response[idx:]
+
+            # Ensure command ends with --- (LLMs sometimes forget)
+            if command.startswith('\\') and not command.rstrip().endswith('---'):
+                command = command.rstrip() + ' ---'
+
+            # Record full response in history for context
+            self.history.append({"role": "assistant", "content": raw_response})
 
             return command
 

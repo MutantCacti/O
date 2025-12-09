@@ -586,10 +586,11 @@ class TestValidation:
         with pytest.raises(ParserError, match="Empty entity group"):
             parse(r"\test @() ---")
 
-    def test_empty_space_name(self):
-        """Test that # with no name is rejected"""
-        with pytest.raises(ParserError, match="Empty space name"):
-            parse(r"\test # ---")
+    def test_hash_followed_by_space_is_text(self):
+        """Test that # followed by space is treated as regular text, not a space marker"""
+        cmd = parse(r"\test # something ---")
+        # The # followed by space is just text (like markdown headers)
+        assert any(isinstance(n, Text) and '#' in n.text for n in cmd.content)
 
     def test_empty_space_group(self):
         """Test that #() is rejected"""
@@ -606,10 +607,11 @@ class TestValidation:
         with pytest.raises(ParserError, match="Invalid entity name"):
             parse(r"\test @_invalid ---")
 
-    def test_invalid_space_name_starts_with_hyphen(self):
-        """Test that space names can't start with -"""
-        with pytest.raises(ParserError, match="Invalid space name"):
-            parse(r"\test #-invalid ---")
+    def test_hash_hyphen_is_text(self):
+        """Test that #- is treated as text since - can't start a space name"""
+        cmd = parse(r"\test #-invalid ---")
+        # #- is just text since - isn't a valid space name start character
+        assert any(isinstance(n, Text) and '#-invalid' in n.text for n in cmd.content)
 
     def test_valid_entity_names(self):
         """Test that valid entity names work"""
