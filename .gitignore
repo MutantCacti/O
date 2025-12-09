@@ -13,3 +13,4 @@ state/checkpoints/
 memory/
 transformers/fifos/
 *.jsonl
+.env
